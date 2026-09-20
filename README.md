@@ -19,8 +19,10 @@ Authoring and publishing a [SignalK](https://signalk.org) server plugin to npm �
 admin-gated router; deltas; vessel position), the **ESM** scaffold (supported since server
 2.14; default-export the plugin factory), defining the config schema once in **TypeBox**
 (`@signalk/server-api` ships it — one definition is both the admin-UI form and the TS type),
-webapp view state in a **Zustand** store so it survives navigation, the
-**no-install-scripts rule** (app-store installs pass `--ignore-scripts`, npm 12 gates
+webapp view state in a **Zustand** store so it survives navigation, **typechecking the Vite
+build** (Vite transpiles without typechecking, so a strict `tsconfig` catches nothing at build
+time — `vite-plugin-checker` closes the gap; the server's own admin UI had 40 errors hidden
+this way), the **no-install-scripts rule** (app-store installs pass `--ignore-scripts`, npm 12 gates
 dependency scripts, and a plugin can't whitelist itself — containerize heavy parts via the
 signalk-container manager instead), **where to store what** (server-owned config vs
 `getDataDirPath()` vs the applicationData API — and never inside `node_modules`, where

@@ -1,6 +1,6 @@
 ---
 name: signalk-plugin
-description: Use when authoring and publishing a SignalK server plugin to npm — the @signalk/server-api patterns that actually work (resource provider vs router, deltas, vessel position), the ESM package scaffold, TypeBox config schemas, webapp state that survives navigation, the no-install-scripts rule (app-store installs pass --ignore-scripts and npm 12 gates dependency scripts — containerize heavy parts instead), and npm OIDC trusted publishing (including the new-package first-publish chicken-and-egg).
+description: Use when authoring and publishing a SignalK server plugin to npm — the @signalk/server-api patterns that actually work (resource provider vs router, deltas, vessel position), the ESM package scaffold, TypeBox config schemas, webapp state that survives navigation, typechecking a Vite build (Vite only transpiles, so type errors accumulate invisibly), the no-install-scripts rule (app-store installs pass --ignore-scripts and npm 12 gates dependency scripts — containerize heavy parts instead), and npm OIDC trusted publishing (including the new-package first-publish chicken-and-egg).
 ---
 
 # Author & publish a SignalK plugin
@@ -92,7 +92,60 @@ state survives the remount. Use **Zustand** — it's what the server's own admin
 so you add no new concept to the stack — and this exact bug class has shipped in the admin UI
 itself, so treat it as the default trap, not an edge case.
 
-## 5. Publish to npm
+## 5. Vite transpiles — it does not typecheck
+
+A Vite build strips types and emits; it never runs the typechecker. So a webapp or config
+panel written in TypeScript can build green for months while type errors pile up invisibly,
+and `strict` in `tsconfig.json` buys you nothing at build time — only your editor sees those
+errors, and only for files you happen to open.
+
+This is not theoretical: the SignalK server's own admin UI had accumulated **40 type errors**
+under an otherwise strict config before anyone ran `tsc --noEmit` against it. Three were real
+user-visible defects, not annotation noise — a `<Col xs="0">` emitting a nonexistent `col-0`
+class, a `size={5}` on a react-bootstrap `Form.Control` that silently did nothing (`htmlSize`
+is the prop that sets input width), and a test asserting a payload shape the store never
+produced, because the store redeclared the type inline instead of importing the shared one.
+
+Add [`vite-plugin-checker`](https://github.com/fi3ework/vite-plugin-checker) so the build
+typechecks and fails on any new error:
+
+```ts
+// vite.config.ts
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import checker from 'vite-plugin-checker'
+
+export default defineConfig({
+  plugins: [react(), checker({ typescript: true })]
+})
+```
+
+```json
+"devDependencies": { "vite-plugin-checker": "^0.14.5", "typescript": "^5.9.3" }
+```
+
+Notes that matter in practice:
+
+- **One config covers dev and build.** `enableBuild`, `overlay` and `terminal` all default to
+  `true`, so `vite build` fails on a type error and `vite dev` shows it as an overlay plus
+  terminal output. You don't need a separate `tsc --noEmit` step in CI if the build runs there.
+- **Budget the build time.** Typechecking is not free: the admin UI build went from about
+  30s to about 38s. That is the whole cost, and it is worth it.
+- **Fix the backlog before you add the gate**, not after — otherwise the first build after
+  wiring it up fails on errors that predate you. Run `tsc --noEmit` first, get to zero, then
+  add the plugin in the same change so it can never regress.
+- **Verify the gate actually bites.** Introduce a deliberate type error and confirm the build
+  exits non-zero. A checker that is silently misconfigured looks exactly like a clean codebase.
+
+`vitest` does not close this gap by default either — it runs tests through the same
+transpile-only pipeline, so a test file can reference a type that does not exist and still
+pass. It has a `--typecheck` mode (`typecheck.enabled`), off by default, but that checks test
+files on a test run; it is not a substitute for the build-time gate.
+
+*Verified against vite 8 / vite-plugin-checker 0.14.5, September 2026 — SignalK/signalk-server
+[#3068](https://github.com/SignalK/signalk-server/pull/3068).*
+
+## 6. Publish to npm
 
 Ship via **OIDC trusted publishing** so each GitHub release auto-publishes with no token/OTP.
 The full flow — the release-triggered `publish.yml`, the new-package first-publish
@@ -101,7 +154,7 @@ registry-propagation 404 gotcha — is in the **`npm-oidc-publish`** skill in th
 SignalK-specific bits: the `signalk-node-server-plugin` keyword is what surfaces the package
 in the app store, and ship `index.js`/`dist` via `"files"`.
 
-## 6. Install on a SignalK server
+## 7. Install on a SignalK server
 
 Install from the admin UI **Appstore** (search your plugin), or `npm install signalk-<name>`
 in the server's data dir (`~/.signalk`), then restart. Config persists under
@@ -111,7 +164,7 @@ and can't rename a mount point (`EBUSY`), which breaks *every* plugin install/up
 outside `node_modules` and link it with a `file:` dep, or just `npm install` it as a tracked
 dependency (anything extraneous gets pruned on the next reify).
 
-## 7. Install scripts never run — design for it
+## 8. Install scripts never run — design for it
 
 - **The app store installs plugins with `npm --save --ignore-scripts install`** (read from the
   released server's install path). Your plugin's `install`/`postinstall` — and those of every
@@ -134,7 +187,7 @@ dependency (anything extraneous gets pruned on the next reify).
   manager (the [`signalk-container-helper`](https://github.com/hoeken/signalk-container-helper)
   library packages the container lifecycle), and keep the npm plugin itself thin.
 
-## 8. Where to store what
+## 9. Where to store what
 
 Four distinct places, and picking the wrong one is a delayed-loss bug:
 
@@ -162,7 +215,7 @@ Four distinct places, and picking the wrong one is a delayed-loss bug:
 
 Keep pure helpers (parsing, mapping, math) separate and test them directly; inject/mock the
 I/O boundary (HTTP fetches, the SignalK `app.*` calls), or exercise it against a throwaway
-local `http` server in the test. `node:test` for JS, `vitest` for TS.
+local `http` server in the test. `node:test` for JS, `vitest` for TS — but note that `vitest` transpiles without typechecking too, so it is no substitute for the build-time gate in section 5.
 
 ---
 
