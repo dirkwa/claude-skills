@@ -111,12 +111,22 @@ typechecks and fails on any new error:
 
 ```ts
 // vite.config.ts
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import checker from 'vite-plugin-checker'
 
+// `__dirname` does not exist in an ESM config, and the whole point here is
+// an absolute path that does not depend on the cwd the build runs from.
+const here = fileURLToPath(new URL('.', import.meta.url))
+
 export default defineConfig({
-  plugins: [react(), checker({ typescript: true })]
+  plugins: [
+    react(),
+    // Pin the project explicitly -- `typescript: true` is a silently
+    // vacuous gate on most scaffolds. See below.
+    checker({ typescript: { root: here, buildMode: true } })
+  ]
 })
 ```
 
@@ -126,23 +136,52 @@ export default defineConfig({
 
 Notes that matter in practice:
 
-- **One config covers dev and build.** `enableBuild`, `overlay` and `terminal` all default to
-  `true`, so `vite build` fails on a type error and `vite dev` shows it as an overlay plus
-  terminal output. You don't need a separate `tsc --noEmit` step in CI if the build runs there.
+- **`typescript: true` is not enough — pin the project.** The bare form is what makes this a
+  placebo instead of a gate, in two ways.
+
+  *Dev and build resolve different tsconfigs.* Dev mode resolves from the **Vite root**, but
+  build mode spawns a bare `tsc --noEmit` from **`process.cwd()`** (`buildBin` returns
+  `['tsc', ['--noEmit']]` with no `-p`, and the spawn uses `cwd: process.cwd()`). For the
+  plugin shape this skill teaches — server TS in `src/`, webapp in a subdirectory — `npm run
+  build` at the package root runs the webapp's check against the **plugin's** tsconfig. The
+  webapp's errors are never looked at. signalk-server escapes this only because its
+  `vite build` is invoked from `packages/server-admin-ui/`, where cwd and the Vite root
+  coincide.
+
+  *A solution-style tsconfig checks nothing.* `npm create vite@latest -- --template react-ts`
+  generates a root `tsconfig.json` of `{ "files": [], "references": [...] }`. Bare
+  `tsc --noEmit` against that typechecks **zero files and exits 0** — TypeScript suppresses
+  TS18003 for solution configs. Verified with typescript 5.9.3 and a real error in `src/`:
+  `tsc --noEmit` exits 0, `tsc -b` reports TS2322 and exits 1.
+
+  Passing an object fixes both: `root` pins the project for build mode
+  (`buildBin` then emits `-p <root>/<tsconfigPath>`), and `buildMode: true` runs `tsc -b`,
+  which follows project references. An explicit `tsconfigPath` works in place of
+  `buildMode` when the config is flat.
+- **Dev and build both report, once pinned.** `enableBuild`, `overlay` and `terminal` all
+  default to `true`, so `vite build` fails on a type error and `vite dev` shows it as an
+  overlay plus terminal output.
 - **Budget the build time.** Typechecking is not free: the admin UI build went from about
   30s to about 38s. That is the whole cost, and it is worth it.
 - **Fix the backlog before you add the gate**, not after — otherwise the first build after
-  wiring it up fails on errors that predate you. Run `tsc --noEmit` first, get to zero, then
-  add the plugin in the same change so it can never regress.
+  wiring it up fails on errors that predate you. Clear it with the same project-aware command
+  the gate will run — `tsc -b <tsconfig>` where there are project references, `tsc --noEmit -p
+  <tsconfig>` for a flat one — get to zero, then add the plugin in the same change so it can
+  never regress. A bare `tsc --noEmit` here would under-report for the reasons above and leave
+  you thinking the backlog was already clear.
 - **Verify the gate actually bites.** Introduce a deliberate type error and confirm the build
-  exits non-zero. A checker that is silently misconfigured looks exactly like a clean codebase.
+  exits non-zero. A checker that is silently misconfigured looks exactly like a clean codebase
+  — and per the two traps above, the misconfigured spelling is the one most readers reach for
+  first, so this step is the whole difference between a gate and a placebo.
 
 `vitest` does not close this gap by default either — it runs tests through the same
 transpile-only pipeline, so a test file can reference a type that does not exist and still
 pass. It has a `--typecheck` mode (`typecheck.enabled`), off by default, but that checks test
 files on a test run; it is not a substitute for the build-time gate.
 
-*Verified against vite 8 / vite-plugin-checker 0.14.5, September 2026 — SignalK/signalk-server
+*The two `typescript: true` traps were verified against vite-plugin-checker 0.14.5's
+`buildBin` and spawn (`cwd: process.cwd()`), and the solution-config exit-0 reproduced with
+typescript 5.9.3. Verified against vite 8 / vite-plugin-checker 0.14.5, September 2026 — SignalK/signalk-server
 [#3068](https://github.com/SignalK/signalk-server/pull/3068).*
 
 ## 6. Publish to npm
