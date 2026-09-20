@@ -139,8 +139,11 @@ publishing** (npm via OIDC trusted publishing; GHCR with a narrowed tag glob tre
 coarse filter plus the mandatory in-job semver check it cannot replace, prerelease-safe
 `:latest`, and a `needs:`-gated Release), the **verified release-please adoption path** (the
 standing Release PR; the GITHUB_TOKEN token-cascade fix via a dispatched publish at the tag
-ref; the default-off Actions-may-create-PRs setting; concurrency + `issues: write`), and
-**generated release notes** categorized by PR label — no hand-written changelog.
+ref; the default-off Actions-may-create-PRs setting; concurrency), **`changelog-type: github`
+for `by @author` contributor credit** (and why `include-commit-authors` is a no-op), dropping
+`CHANGELOG.md` with `skip-changelog`, the **releasable-commit gate** that stops a docs or ci
+merge proposing a release, and **generated release notes** categorized by PR label — no
+hand-written changelog.
 
 ## Skill format policy
 
