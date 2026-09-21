@@ -1,6 +1,6 @@
 ---
 name: signalk-plugin
-description: Use when authoring and publishing a SignalK server plugin to npm — the @signalk/server-api patterns that actually work (resource provider vs router, deltas, vessel position), the ESM package scaffold, TypeBox config schemas, webapp state that survives navigation, the no-install-scripts rule (app-store installs pass --ignore-scripts and npm 12 gates dependency scripts — containerize heavy parts instead), and npm OIDC trusted publishing (including the new-package first-publish chicken-and-egg).
+description: Use when authoring and publishing a SignalK server plugin to npm — the @signalk/server-api patterns that actually work (resource provider vs router, deltas, vessel position), the ESM package scaffold, TypeBox config schemas (which package, and why), webapp state that survives navigation, the no-install-scripts rule (app-store installs pass --ignore-scripts and npm 12 gates dependency scripts — containerize heavy parts instead), and npm OIDC trusted publishing (including the new-package first-publish chicken-and-egg).
 ---
 
 # Author & publish a SignalK plugin
@@ -57,13 +57,13 @@ makes relative imports require explicit `.js` extensions (`./helpers.js`, even i
 
 ### Define the config schema once, in TypeBox
 
-`@signalk/server-api` ships `@sinclair/typebox` and exports SignalK domain schemas at
-`@signalk/server-api/typebox` (course, notifications, resources, weather, …). TypeBox types
-*are* JSON Schema objects at runtime, so one definition is both the admin-UI config form and
-the TypeScript type:
+`@signalk/server-api` exports SignalK domain schemas at `@signalk/server-api/typebox` (course,
+notifications, resources, weather, …). TypeBox types *are* JSON Schema objects at runtime, so
+one definition is both the admin-UI config form and the TypeScript type — pick your TypeBox
+package first (see below; for a new ESM plugin it's the unscoped `typebox`):
 
 ```ts
-import { Type, type Static } from '@sinclair/typebox'
+import { Type, type Static } from 'typebox'
 
 const ConfigSchema = Type.Object({
   stationName: Type.String({ title: 'Station name', default: 'my-station' }),
@@ -75,12 +75,35 @@ type Config = Static<typeof ConfigSchema> // the type of start(config)
 // in the plugin object:  schema: () => ConfigSchema
 ```
 
-Declare `@sinclair/typebox` in the plugin's **own `dependencies`** — don't rely on the server's
-copy being hoisted into reach. The admin UI renders `title`/`description`/`default` as-is. Two
-gotchas: every property not wrapped in `Type.Optional(...)` lands in the schema's `required`
-list, so wrap truly optional fields; and the package is the **scoped `@sinclair/typebox`**
-(0.34.x — what server-api uses). The *unscoped* `typebox` on npm is the separate 1.x line with
-a different API — don't mix them.
+**Which TypeBox: use unscoped `typebox` 1.x for a new ESM plugin.** There are two packages,
+and the difference is a module-format constraint on the *server*, not a recommendation for you:
+
+- **`typebox` (unscoped, 1.x)** — the current line and the future. It is **exports-only ESM**
+  with no `main`, which is what keeps the still-CJS server and its `node10`-style TypeScript
+  resolution off it.
+- **`@sinclair/typebox` (scoped, 0.34.x)** — what `@signalk/server-api` depends on, because the
+  server is still CJS. It will migrate to 1.x once the legacy JS is refactored to strict TS.
+
+**They emit the same JSON Schema**, so the admin UI cannot tell them apart — verified by
+building the same `Type.Object` under both and comparing: identical keys and values, differing
+only in key insertion order, which no JSON Schema consumer cares about. Since the schema
+crosses the plugin/server boundary as plain JSON, not as a TypeBox object, the server's own
+version does not constrain yours. Write new ESM plugins against 1.x and you are already on the
+line the server is heading for.
+
+What you must not do is import `Type`/`Static` from **both** packages in one file: the two
+APIs are separate, and a `Static<>` taken from one line over a schema built by the other is
+where it breaks. Nesting server-api's exported domain schemas as plain **values** inside a
+1.x `Type.Object` is fine and emits the same JSON Schema — verified by building the same
+object with a 0.34 schema nested under both lines.
+
+Declare your TypeBox package in the plugin's **own `dependencies`** — don't rely on the
+server's copy being hoisted into reach. (If you still ship a CJS plugin, stay on scoped
+0.34.x — not because 1.x fails at runtime, since Node ≥ 22.12 will `require()` an ESM package,
+but because 1.x is exports-only with no `main`, so a TypeScript project on
+`moduleResolution: node10`/`node` cannot resolve it.) The admin UI renders `title`/`description`/`default` as-is.
+One further gotcha: every property not wrapped in `Type.Optional(...)` lands in the schema's
+`required` list, so wrap truly optional fields.
 
 ## 4. Plugin webapp state: a store, not `useState`
 
@@ -168,5 +191,9 @@ local `http` server in the test. `node:test` for JS, `vitest` for TS.
 
 *ESM loading (via the `require` path on Node 24) and the TypeBox config form — render, save,
 `start(config)`, delta emission — verified end-to-end against signalk-server 2.30.0 /
-`@signalk/server-api` 2.30.0, August 2026. The ESM loader mechanics are from the server's
-`importOrRequire` in `src/modules.ts`.*
+`@signalk/server-api` 2.30.0, August 2026, **with the scoped `@sinclair/typebox` 0.34
+sample**. For unscoped `typebox` 1.x only the schema equivalence was checked (same JSON
+Schema modulo key order, including a 0.34 schema nested as a value); that admin-UI run has
+not been repeated against a 1.x sample. The ESM loader mechanics are from the server's
+`importOrRequire` in `src/modules.ts`. The `typebox` 1.x / `@sinclair/typebox` 0.34 schema
+equivalence was re-checked against typebox 1.3.34 and @sinclair/typebox 0.34.52, September 2026.*

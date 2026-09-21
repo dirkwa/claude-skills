@@ -18,7 +18,9 @@ Authoring and publishing a [SignalK](https://signalk.org) server plugin to npm �
 `@signalk/server-api` patterns that actually work (serve data via a resource provider, not an
 admin-gated router; deltas; vessel position), the **ESM** scaffold (supported since server
 2.14; default-export the plugin factory), defining the config schema once in **TypeBox**
-(`@signalk/server-api` ships it — one definition is both the admin-UI form and the TS type),
+(one definition is both the admin-UI form and the TS type — and use the unscoped `typebox` 1.x
+for new ESM plugins: the scoped `@sinclair/typebox` 0.34 is a CJS constraint on the server, not
+a recommendation, and both emit the same JSON Schema),
 webapp view state in a **Zustand** store so it survives navigation, the
 **no-install-scripts rule** (app-store installs pass `--ignore-scripts`, npm 12 gates
 dependency scripts, and a plugin can't whitelist itself — containerize heavy parts via the
