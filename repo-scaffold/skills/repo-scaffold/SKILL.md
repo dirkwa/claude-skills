@@ -128,7 +128,8 @@ branch maintains a **standing Release PR** from the conventional commits — ver
 PR creates the tag and the GitHub Release, so releases still gate on a human merge. (By
 default it also commits a generated `CHANGELOG.md`; the configuration below turns that off
 and leaves the Releases page as the changelog.) Verified
-in production (a real version shipped through the full chain); **four things bit on adoption**:
+in production (a real version shipped through the full chain); **three things bit on adoption**,
+plus a fourth that bites conditionally:
 
 - **Tags pushed with `GITHUB_TOKEN` never trigger your tag-based publish workflow** (GitHub's
   recursion guard). No PAT needed: make the release-please workflow dispatch the publish
@@ -160,6 +161,8 @@ than by changing the policy.
 
 Two config lines change the output more than anything above:
 
+`release-please-config.json`, at the repo root:
+
 ```json
 {
   "release-type": "node",
@@ -169,6 +172,10 @@ Two config lines change the output more than anything above:
   "packages": { ".": {} }
 }
 ```
+
+`"packages"` puts this in **manifest mode**, so commit
+`.release-please-manifest.json` beside it holding the current version — `{ ".": "0.1.0" }` —
+or the first run dies with `Failed to find .release-please-manifest.json`.
 
 No `versioning` key: the default derives the bump from the commit types, which is the
 behaviour you want. `always-bump-patch` exists for a repo whose convention is that every
@@ -213,11 +220,19 @@ gate:
         MESSAGES: ${{ toJSON(github.event.commits.*.message) }}
         RELEASABLE: '^((feat|fix|perf|revert)(\([^)]*\))?!?: |[a-z]+(\([^)]*\))?!: |build\(deps\): |Revert |chore(\([^)]*\))?: release v?[0-9])'
       run: |
-        if jq -e --arg re "$RELEASABLE" '(length >= 2048) or ([.[] | (split("\n")[0] | test($re)) or test("\nBREAKING[- ]CHANGE: ")] | any)' <<< "$MESSAGES" > /dev/null; then
+        if jq -e --arg re "$RELEASABLE" '(length == 0) or (length >= 2048) or ([.[] | (split("\n")[0] | test($re)) or test("\nBREAKING[- ]CHANGE: ")] | any)' <<< "$MESSAGES" > /dev/null; then
           echo "releasable=true" >> "$GITHUB_OUTPUT"
         else
           echo "releasable=false" >> "$GITHUB_OUTPUT"
         fi
+```
+
+The job only computes the answer — the half that makes it a gate is on release-please itself:
+
+```yaml
+release-please:
+  needs: gate
+  if: ${{ needs.gate.outputs.releasable == 'true' }}
 ```
 
 This reads the **subject line** of each pushed commit, which assumes the repo **squash-merges**
@@ -228,9 +243,12 @@ release ever happens. Either require squash merges (Settings → General → Pul
 test the whole message instead of `split("\n")[0]`.
 
 Match the last alternative to your `pull-request-title-pattern` so the release PR's own merge
-is always releasable — that merge is what creates the tag. **Fail open** on a full payload
-(`length >= 2048`): a push that large may hide a releasable commit, so let it through rather
-than silently skipping a release.
+is always releasable — that merge is what creates the tag. **Fail open** at both ends: on a full
+payload (`length >= 2048`) a push that large may hide a releasable commit, and on an empty
+one (`length == 0`) there is nothing to judge — `[...] | any` is `false` for an empty array,
+so without that clause a payload carrying no `commits` (a branch creation, a tag push, or a
+`schedule`/`workflow_dispatch` trigger if the workflow ever grows one) would silently skip.
+Let both through rather than miss a release.
 
 ## 6. Release notes are generated, never hand-written
 
