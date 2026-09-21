@@ -124,8 +124,10 @@ workflow):
 Instead of hand-cutting `chore(release): X.Y.Z` PRs and tags:
 `googleapis/release-please-action@v5` (`release-type: node`) on every push to the default
 branch maintains a **standing Release PR** from the conventional commits — version bump in
-`package.json` *and* the lockfile, generated changelog, compare/PR/commit links. Merging that
-PR creates the tag and the GitHub Release, so releases still gate on a human merge. Verified
+`package.json` *and* the lockfile, release notes, compare/PR/commit links. Merging that
+PR creates the tag and the GitHub Release, so releases still gate on a human merge. (By
+default it also commits a generated `CHANGELOG.md`; the configuration below turns that off
+and leaves the Releases page as the changelog.) Verified
 in production (a real version shipped through the full chain); **four things bit on adoption**:
 
 - **Tags pushed with `GITHUB_TOKEN` never trigger your tag-based publish workflow** (GitHub's
@@ -148,9 +150,11 @@ in production (a real version shipped through the full chain); **four things bit
   than on every repo.
 
 Taxonomy shifts to be aware of: by default notes come from **commit types**, not PR labels;
-`docs` commits are hidden; a `feat` of *any* scope drives a minor — steer an off-policy bump
-with an empty commit carrying a `Release-As: X.Y.Z` footer, or pin the whole policy with
-`versioning` (`always-bump-patch` makes every release a PATCH regardless of commit type).
+`docs` commits are hidden; a `feat` of *any* scope drives a minor, and a `!`/`BREAKING CHANGE`
+a major. **Leave that default alone** — deriving the bump from the commit types is the point
+of conventional commits, and it is what makes the version mean something to a consumer. Steer
+a one-off off-policy bump with an empty commit carrying a `Release-As: X.Y.Z` footer rather
+than by changing the policy.
 
 #### Credit contributors in the notes, and drop `CHANGELOG.md` entirely
 
@@ -159,13 +163,18 @@ Two config lines change the output more than anything above:
 ```json
 {
   "release-type": "node",
-  "versioning": "always-bump-patch",
   "changelog-type": "github",
   "skip-changelog": true,
   "pull-request-title-pattern": "chore: release ${version}",
   "packages": { ".": {} }
 }
 ```
+
+No `versioning` key: the default derives the bump from the commit types, which is the
+behaviour you want. `always-bump-patch` exists for a repo whose convention is that every
+release is a PATCH — a plugin pinned to a host's version line, say — and it is a deliberate
+opt-out of semver, not a default worth copying. Set it only where that convention already
+holds, and say so in the repo.
 
 - **`changelog-type: github`** hands note generation to GitHub's own API, which is what
   produces the **`by @author`** credit lines. Beware `include-commit-authors`: it looks like
@@ -210,6 +219,13 @@ gate:
           echo "releasable=false" >> "$GITHUB_OUTPUT"
         fi
 ```
+
+This reads the **subject line** of each pushed commit, which assumes the repo **squash-merges**
+pull requests so the PR title becomes the subject. On a repo that uses true merge commits the
+subject is `Merge pull request #N from …` and the conventional-commit title sits on a later
+line, so every push — the release PR's own merge included — judges non-releasable and no
+release ever happens. Either require squash merges (Settings → General → Pull Requests), or
+test the whole message instead of `split("\n")[0]`.
 
 Match the last alternative to your `pull-request-title-pattern` so the release PR's own merge
 is always releasable — that merge is what creates the tag. **Fail open** on a full payload
