@@ -138,6 +138,21 @@ plus a fourth that bites conditionally:
   `actions: write`; dispatching *at the tag ref* builds the tagged tree even if the default
   branch has moved on. Keep the publish workflow's own Release job gated on push events so
   release-please's Release stays the only one.
+
+  **Pass `-f` only for inputs the target workflow declares.** A workflow whose
+  `workflow_dispatch:` takes no inputs rejects the dispatch outright —
+  `HTTP 422: Unexpected inputs provided: ["tag"]`, nothing queued — so the command above is
+  not copy-paste safe across workflows. Check what each one accepts and drop the `-f` where
+  there is none. Many workflows need no input anyway: one that derives its version from the
+  commit (`git tag --points-at HEAD`) rather than from `GITHUB_REF_NAME` gets everything it
+  needs from `--ref "$TAG"`.
+
+  **Dispatch every tag-triggered workflow, not just "the publish one."** The recursion guard
+  silences all of them, and a repo often has more than one — a docs/site deploy, a channel
+  branch that a dev-environment command clones, a mirror job. The symptom is silence in a
+  place nobody watches: the Release appears and looks correct while a downstream consumer
+  quietly keeps serving the previous version. `grep -l "tags:" .github/workflows/*.yml`
+  before adopting, and dispatch each one that comes back.
 - **The repo setting "Allow GitHub Actions to create and approve pull requests" is off by
   default** — the first run does all its branch work and then fails with exactly that
   message. Flip it under Settings → Actions → General (or
@@ -176,6 +191,20 @@ Two config lines change the output more than anything above:
 `"packages"` puts this in **manifest mode**, so commit
 `.release-please-manifest.json` beside it holding the current version — `{ ".": "0.1.0" }` —
 or the first run dies with `Failed to find .release-please-manifest.json`.
+
+`release-type: node` is right only when `package.json` is the thing being versioned, because
+it bumps that file and the lockfile. A repo whose `package.json` exists for build tooling —
+a docs site renderer, a test harness — usually declares it `private` with **no `version`
+field** at all, and there is nothing there to bump. That is the common shape for a pure bash
+or PowerShell repo that happens to carry a Node toolchain. Picking `node` by reflex because a
+`package.json` is present versions the wrong artifact.
+
+`release-type: simple` is the alternative: it leaves `package.json` alone and tracks the
+version in a `version.txt` instead. Commit that file with the current version before the first
+run — the strategy updates it with `createIfMissing: false`, so it expects the file to be
+there already, the same way manifest mode expects `.release-please-manifest.json`. (Read from
+the strategy source, not run here; a repo whose only release artifact is a git tag may prefer
+to skip both and hand-cut tags, since `simple` still wants a file to bump.)
 
 No `versioning` key: the default derives the bump from the commit types, which is the
 behaviour you want. `always-bump-patch` exists for a repo whose convention is that every
