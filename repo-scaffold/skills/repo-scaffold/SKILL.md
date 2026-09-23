@@ -122,8 +122,8 @@ workflow):
 ### Or automate the whole ritual: release-please (verified end-to-end)
 
 Instead of hand-cutting `chore(release): X.Y.Z` PRs and tags:
-`googleapis/release-please-action@v5` (`release-type: node`) on every push to the default
-branch maintains a **standing Release PR** from the conventional commits — version bump in
+`googleapis/release-please-action@v5` on every push to the default branch maintains a
+**standing Release PR** from the conventional commits — version bump in
 `package.json` *and* the lockfile, release notes, compare/PR/commit links. Merging that
 PR creates the tag and the GitHub Release, so releases still gate on a human merge. (By
 default it also commits a generated `CHANGELOG.md`; the configuration below turns that off
@@ -139,7 +139,13 @@ plus a fourth that bites conditionally:
   branch has moved on. Keep the publish workflow's own Release job gated on push events so
   release-please's Release stays the only one.
 
-  **Pass `-f` only for inputs the target workflow declares.** A workflow whose
+  **Pass the action no inputs.** Give the step `uses:` and an `id:` and nothing else: setting
+`release-type:` on the action puts it in single-package mode, where it stops reading
+`release-please-config.json` and silently ignores everything configured there —
+`changelog-type`, `skip-changelog`, `pull-request-title-pattern`. Put `"release-type": "node"`
+in the config file instead, which is where the rest of the settings already are.
+
+**Pass `-f` only for inputs the target workflow declares.** A workflow whose
   `workflow_dispatch:` takes no inputs rejects the dispatch outright —
   `HTTP 422: Unexpected inputs provided: ["tag"]`, nothing queued — so the command above is
   not copy-paste safe across workflows. Check what each one accepts and drop the `-f` where
