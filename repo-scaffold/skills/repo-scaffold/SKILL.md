@@ -119,6 +119,23 @@ workflow):
   mixed styles make scanner findings unreadable. Treat a scanner's blanket "pin to SHA"
   finding as this policy question, not a defect.
 
+**Lint the workflows themselves.** A workflow expression is not checked by anything until the
+job runs, and a publish job runs on a tag — so a typo ships and waits. `actionlint` catches it
+in seconds:
+
+```bash
+actionlint .github/workflows/*.yml
+```
+
+The failure worth knowing: **GitHub Actions expressions have no `split()`.** The string and
+object functions are `contains`, `startsWith`, `endsWith`, `format`, `join`, `toJSON`,
+`fromJSON` and `hashFiles` — plus the status checks `success`, `failure`, `always` and
+`cancelled` — and that is all of them, so
+`contains(split(github.ref_name, '+')[0], '-')` — a plausible-looking way to read the part of a
+tag before its build metadata — is a syntax error that fails the step. It reads fine, and it is
+the kind of thing you verify in bash, where `split` does exist. Do the string work in a `run:`
+step and pass an output back, or keep the expression to the functions above.
+
 ### Or automate the whole ritual: release-please (verified end-to-end)
 
 Instead of hand-cutting `chore(release): X.Y.Z` PRs and tags:
@@ -350,4 +367,7 @@ manifest with `:VERSION` + `:latest`; all four adoption gotchas above were hit a
 in that run, not copied from documentation. The `changelog-type: github` contributor lines,
 `skip-changelog`, and the releasable-commit gate verified on two npm plugin repos
 (2026-09-21); the gate's judgement observed correctly skipping a `ci:` merge in production.
-`include-commit-authors` re-confirmed a no-op against release-please#2892, still open.*
+`include-commit-authors` re-confirmed a no-op against release-please#2892, still open. The
+`Release-As` gate gap, the `skip-changelog` label prerequisite and the `split()` expression
+error all surfaced adopting this on a sixth repo (2026-09-23); `split()` confirmed undefined by
+actionlint 1.7.12, which is where the function list above comes from.*
