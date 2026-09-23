@@ -151,8 +151,14 @@ plus a fourth that bites conditionally:
   silences all of them, and a repo often has more than one — a docs/site deploy, a channel
   branch that a dev-environment command clones, a mirror job. The symptom is silence in a
   place nobody watches: the Release appears and looks correct while a downstream consumer
-  quietly keeps serving the previous version. `grep -l "tags:" .github/workflows/*.yml`
-  before adopting, and dispatch each one that comes back.
+  quietly keeps serving the previous version.
+
+  Inventory them before adopting, and read the triggers rather than grepping for `tags:`: a
+  `push:` with no `branches:`/`tags:` filter at all fires on tag pushes too, and workflow
+  files may be `.yaml` as well as `.yml`. Then check each one you intend to dispatch actually
+  can be — `gh workflow run` needs the workflow to declare `workflow_dispatch` and to exist on
+  the default branch. One that is tag-triggered but has neither gets no recovery from this
+  approach; give it a `workflow_dispatch` trigger (the cheap fix) or drive it another way.
 - **The repo setting "Allow GitHub Actions to create and approve pull requests" is off by
   default** — the first run does all its branch work and then fails with exactly that
   message. Flip it under Settings → Actions → General (or
