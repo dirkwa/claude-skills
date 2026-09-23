@@ -255,7 +255,7 @@ gate:
         MESSAGES: ${{ toJSON(github.event.commits.*.message) }}
         RELEASABLE: '^((feat|fix|perf|revert)(\([^)]*\))?!?: |[a-z]+(\([^)]*\))?!: |build\(deps\): |Revert |chore(\([^)]*\))?: release v?[0-9])'
       run: |
-        if jq -e --arg re "$RELEASABLE" '(length == 0) or (length >= 2048) or ([.[] | (split("\n")[0] | test($re)) or test("\nBREAKING[- ]CHANGE: ")] | any)' <<< "$MESSAGES" > /dev/null; then
+        if jq -e --arg re "$RELEASABLE" '(length == 0) or (length >= 2048) or ([.[] | (split("\n")[0] | test($re)) or test("\nBREAKING[- ]CHANGE: ") or test("\nRelease-As: "; "i")] | any)' <<< "$MESSAGES" > /dev/null; then
           echo "releasable=true" >> "$GITHUB_OUTPUT"
         else
           echo "releasable=false" >> "$GITHUB_OUTPUT"
@@ -276,6 +276,14 @@ subject is `Merge pull request #N from …` and the conventional-commit title si
 line, so every push — the release PR's own merge included — judges non-releasable and no
 release ever happens. Either require squash merges (Settings → General → Pull Requests), or
 test the whole message instead of `split("\n")[0]`.
+
+**The footer tests are not decoration.** A `BREAKING CHANGE:` or `Release-As:` footer is
+usually written on a commit whose *subject* is not releasable — the off-policy bump below is
+steered with an empty commit, and a breaking change is often a `refactor!`/`chore!`. Without
+them the gate skips exactly the commits those footers exist to act on, and the escape hatch
+this skill recommends silently does nothing. `Release-As` is matched case-insensitively
+because release-please's own parser is: a gate stricter than the thing it gates rejects a
+footer release-please would have honoured.
 
 Match the last alternative to your `pull-request-title-pattern` so the release PR's own merge
 is always releasable — that merge is what creates the tag. **Fail open** at both ends: on a full
@@ -311,6 +319,17 @@ does?"). No hand-maintained CHANGELOG file; it drifts and duplicates the Release
 
 This file stays in play under release-please when you set `changelog-type: github` — same
 categories, plus the `autorelease:*` excludes — so keep PRs labelled.
+
+**Create the labels before anything applies them.** `skip-changelog` is not a default GitHub
+label, and `gh pr edit --add-label` fails the step outright on a label the repo does not
+define — `'skip-changelog' not found`, exit 1 — so a workflow that labels from the PR title
+goes red on the first `ci:` or `chore:` pull request, which is usually the one adopting this.
+Naming a missing label in `release.yml` is harmless by contrast: an exclude that matches
+nothing simply excludes nothing.
+
+```bash
+gh label create skip-changelog --color ededed --description "Left out of the release notes"
+```
 
 ---
 
