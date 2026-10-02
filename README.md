@@ -22,8 +22,8 @@ admin-gated router; deltas; vessel position), the **ESM** scaffold (supported si
 for new ESM plugins: the scoped `@sinclair/typebox` 0.34 is a CJS constraint on the server, not
 a recommendation, and both emit the same JSON Schema),
 webapp view state in a **Zustand** store so it survives navigation, the **app icon that
-404s** (`signalk.appIcon` is read from the package root, the webapp fetches it from the build
-output, and a Vite `root` moves the default `publicDir` to a directory that does not exist),
+404s** (`signalk.appIcon` and the webapp both read it from the served build output, and a Vite
+`root` moves the default `publicDir` to a directory that does not exist),
 the **no-install-scripts rule** (app-store installs pass `--ignore-scripts`, npm 12 gates
 dependency scripts, and a plugin can't whitelist itself — containerize heavy parts via the
 signalk-container manager instead), **where to store what** (server-owned config vs
