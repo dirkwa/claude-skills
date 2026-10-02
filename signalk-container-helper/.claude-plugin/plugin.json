@@ -1,7 +1,7 @@
 {
   "name": "signalk-container-helper",
   "description": "Build a SignalK plugin that runs a Docker/Podman container via the signalk-container manager, using the signalk-container-helper library.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": { "name": "Dirk Wahrheit" },
   "license": "MIT",
   "keywords": ["signalk", "marine", "container", "docker", "podman", "plugin"]

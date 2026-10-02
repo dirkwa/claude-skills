@@ -214,9 +214,10 @@ themselves. Two halves, both in the library.
 
 **Config form** — `…/schema` emits **plain JSON Schema fragments, deliberately not TypeBox
 types**. Consumers are split across two mutually incompatible packages (`typebox` 1.x and
-`@sinclair/typebox` 0.34), and this split is **permanent, not a migration**: `@signalk/server-api`
-itself depends on the scoped 0.34, so it is in every consumer's tree regardless. Plain fragments
-are the one shape both accept.
+`@sinclair/typebox` 0.34): 1.x is ESM-only, so `@signalk/server-api` — still CJS — depends on
+the scoped 0.34 and puts it in every consumer's tree. The server will move to 1.x once its
+legacy JS is refactored to strict TS, but until then a *library* has to serve plugins on either
+line, and plain fragments are the one shape both accept.
 
 ```ts
 import { managedModeSchema, type WithExternalUrl } from "signalk-container-helper/schema";

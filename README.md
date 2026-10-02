@@ -18,7 +18,9 @@ Authoring and publishing a [SignalK](https://signalk.org) server plugin to npm �
 `@signalk/server-api` patterns that actually work (serve data via a resource provider, not an
 admin-gated router; deltas; vessel position), the **ESM** scaffold (supported since server
 2.14; default-export the plugin factory), defining the config schema once in **TypeBox**
-(`@signalk/server-api` ships it — one definition is both the admin-UI form and the TS type),
+(one definition is both the admin-UI form and the TS type — and use the unscoped `typebox` 1.x
+for new ESM plugins: the scoped `@sinclair/typebox` 0.34 is a CJS constraint on the server, not
+a recommendation, and both emit the same JSON Schema),
 webapp view state in a **Zustand** store so it survives navigation, **typechecking the Vite
 build** (Vite transpiles without typechecking, so a strict `tsconfig` catches nothing at build
 time — `vite-plugin-checker` closes the gap; the server's own admin UI had 40 errors hidden
@@ -141,8 +143,11 @@ publishing** (npm via OIDC trusted publishing; GHCR with a narrowed tag glob tre
 coarse filter plus the mandatory in-job semver check it cannot replace, prerelease-safe
 `:latest`, and a `needs:`-gated Release), the **verified release-please adoption path** (the
 standing Release PR; the GITHUB_TOKEN token-cascade fix via a dispatched publish at the tag
-ref; the default-off Actions-may-create-PRs setting; concurrency + `issues: write`), and
-**generated release notes** categorized by PR label — no hand-written changelog.
+ref; the default-off Actions-may-create-PRs setting; concurrency), **`changelog-type: github`
+for `by @author` contributor credit** (and why `include-commit-authors` is a no-op), dropping
+`CHANGELOG.md` with `skip-changelog`, the **releasable-commit gate** that stops a docs or ci
+merge proposing a release, and **generated release notes** categorized by PR label — no
+hand-written changelog.
 
 ## Skill format policy
 
