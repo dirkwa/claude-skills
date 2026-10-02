@@ -119,14 +119,34 @@ workflow):
   mixed styles make scanner findings unreadable. Treat a scanner's blanket "pin to SHA"
   finding as this policy question, not a defect.
 
+**Lint the workflows themselves.** A workflow expression is not checked by anything until the
+job runs, and a publish job runs on a tag — so a typo ships and waits. `actionlint` catches it
+in seconds:
+
+```bash
+actionlint .github/workflows/*.yml
+```
+
+The failure worth knowing: **GitHub Actions expressions have no `split()`.** The string and
+object functions are `contains`, `startsWith`, `endsWith`, `format`, `join`, `toJSON`,
+`fromJSON` and `hashFiles` — plus the status checks `success`, `failure`, `always` and
+`cancelled` — and that is all of them, so
+`contains(split(github.ref_name, '+')[0], '-')` — a plausible-looking way to read the part of a
+tag before its build metadata — is a syntax error that fails the step. It reads fine, and it is
+the kind of thing you verify in bash, where `split` does exist. Do the string work in a `run:`
+step and pass an output back, or keep the expression to the functions above.
+
 ### Or automate the whole ritual: release-please (verified end-to-end)
 
 Instead of hand-cutting `chore(release): X.Y.Z` PRs and tags:
-`googleapis/release-please-action@v4` (`release-type: node`) on every push to the default
-branch maintains a **standing Release PR** from the conventional commits — version bump in
-`package.json` *and* the lockfile, generated changelog, compare/PR/commit links. Merging that
-PR creates the tag and the GitHub Release, so releases still gate on a human merge. Verified
-in production (a real version shipped through the full chain); **four things bit on adoption**:
+`googleapis/release-please-action@v5` on every push to the default branch maintains a
+**standing Release PR** from the conventional commits — version bump in
+`package.json` *and* the lockfile, release notes, compare/PR/commit links. Merging that
+PR creates the tag and the GitHub Release, so releases still gate on a human merge. (By
+default it also commits a generated `CHANGELOG.md`; the configuration below turns that off
+and leaves the Releases page as the changelog.) Verified
+in production (a real version shipped through the full chain); **three things bit on adoption**,
+plus a fourth that bites conditionally:
 
 - **Tags pushed with `GITHUB_TOKEN` never trigger your tag-based publish workflow** (GitHub's
   recursion guard). No PAT needed: make the release-please workflow dispatch the publish
@@ -135,6 +155,33 @@ in production (a real version shipped through the full chain); **four things bit
   `actions: write`; dispatching *at the tag ref* builds the tagged tree even if the default
   branch has moved on. Keep the publish workflow's own Release job gated on push events so
   release-please's Release stays the only one.
+
+  **Pass the action no inputs.** Give the step `uses:` and an `id:` and nothing else: setting
+`release-type:` on the action puts it in single-package mode, where it stops reading
+`release-please-config.json` and silently ignores everything configured there —
+`changelog-type`, `skip-changelog`, `pull-request-title-pattern`. Put `"release-type": "node"`
+in the config file instead, which is where the rest of the settings already are.
+
+**Pass `-f` only for inputs the target workflow declares.** A workflow whose
+  `workflow_dispatch:` takes no inputs rejects the dispatch outright —
+  `HTTP 422: Unexpected inputs provided: ["tag"]`, nothing queued — so the command above is
+  not copy-paste safe across workflows. Check what each one accepts and drop the `-f` where
+  there is none. Many workflows need no input anyway: one that derives its version from the
+  commit (`git tag --points-at HEAD`) rather than from `GITHUB_REF_NAME` gets everything it
+  needs from `--ref "$TAG"`.
+
+  **Dispatch every tag-triggered workflow, not just "the publish one."** The recursion guard
+  silences all of them, and a repo often has more than one — a docs/site deploy, a channel
+  branch that a dev-environment command clones, a mirror job. The symptom is silence in a
+  place nobody watches: the Release appears and looks correct while a downstream consumer
+  quietly keeps serving the previous version.
+
+  Inventory them before adopting, and read the triggers rather than grepping for `tags:`: a
+  `push:` with no `branches:`/`tags:` filter at all fires on tag pushes too, and workflow
+  files may be `.yaml` as well as `.yml`. Then check each one you intend to dispatch actually
+  can be — `gh workflow run` needs the workflow to declare `workflow_dispatch` and to exist on
+  the default branch. One that is tag-triggered but has neither gets no recovery from this
+  approach; give it a `workflow_dispatch` trigger (the cheap fix) or drive it another way.
 - **The repo setting "Allow GitHub Actions to create and approve pull requests" is off by
   default** — the first run does all its branch work and then fails with exactly that
   message. Flip it under Settings → Actions → General (or
@@ -142,14 +189,132 @@ in production (a real version shipped through the full chain); **four things bit
 - **Serialize with a `concurrency` group** (`cancel-in-progress: false`) — every default-branch
   push runs the workflow, and back-to-back merges race over the same Release PR (observed
   immediately: three merges, three simultaneous runs).
-- **Permissions**: `contents: write`, `pull-requests: write`, *plus* `issues: write` — it
-  creates its `autorelease` labels through the issues API.
+- **Permissions**: `contents: write` and `pull-requests: write` on the release-please job.
+  Add `issues: write` if a run fails creating its `autorelease:*` labels — it reaches for the
+  issues API to make them, so the need shows up on a repo where they don't exist yet rather
+  than on every repo.
 
-Taxonomy shifts to be aware of: notes come from **commit types**, not PR labels (the
-`release.yml` categories below go unused for these releases); `docs` commits are hidden by
-default; a `feat` of *any* scope drives a minor — steer an off-policy bump with an empty
-commit carrying a `Release-As: X.Y.Z` footer. It also commits a generated `CHANGELOG.md` —
-still nothing hand-written, but now a tracked file; configure it away if unwanted.
+Taxonomy shifts to be aware of: by default notes come from **commit types**, not PR labels;
+`docs` commits are hidden; a `feat` of *any* scope drives a minor, and a `!`/`BREAKING CHANGE`
+a major. **Leave that default alone** — deriving the bump from the commit types is the point
+of conventional commits, and it is what makes the version mean something to a consumer. Steer
+a one-off off-policy bump with an empty commit carrying a `Release-As: X.Y.Z` footer rather
+than by changing the policy.
+
+#### Credit contributors in the notes, and drop `CHANGELOG.md` entirely
+
+Two config lines change the output more than anything above:
+
+`release-please-config.json`, at the repo root:
+
+```json
+{
+  "release-type": "node",
+  "changelog-type": "github",
+  "skip-changelog": true,
+  "pull-request-title-pattern": "chore: release ${version}",
+  "packages": { ".": {} }
+}
+```
+
+`"packages"` puts this in **manifest mode**, so commit
+`.release-please-manifest.json` beside it holding the current version — `{ ".": "0.1.0" }` —
+or the first run dies with `Failed to find .release-please-manifest.json`.
+
+`release-type: node` is right only when `package.json` is the thing being versioned, because
+it bumps that file and the lockfile. A repo whose `package.json` exists for build tooling —
+a docs site renderer, a test harness — usually declares it `private` with **no `version`
+field** at all, and there is nothing there to bump. That is the common shape for a pure bash
+or PowerShell repo that happens to carry a Node toolchain. Picking `node` by reflex because a
+`package.json` is present versions the wrong artifact.
+
+`release-type: simple` is the alternative: it leaves `package.json` alone and tracks the
+version in a `version.txt` instead. Commit that file with the current version before the first
+run — the strategy updates it with `createIfMissing: false`, so it expects the file to be
+there already, the same way manifest mode expects `.release-please-manifest.json`. (Read from
+the strategy source, not run here; a repo whose only release artifact is a git tag may prefer
+to skip both and hand-cut tags, since `simple` still wants a file to bump.)
+
+No `versioning` key: the default derives the bump from the commit types, which is the
+behaviour you want. `always-bump-patch` exists for a repo whose convention is that every
+release is a PATCH — a plugin pinned to a host's version line, say — and it is a deliberate
+opt-out of semver, not a default worth copying. Set it only where that convention already
+holds, and say so in the repo.
+
+- **`changelog-type: github`** hands note generation to GitHub's own API, which is what
+  produces the **`by @author`** credit lines. Beware `include-commit-authors`: it looks like
+  the option for this and is a **no-op** — `parseConventionalCommits` rebuilds each commit
+  without the `author` field, so the notes never see it
+  ([release-please#2892](https://github.com/googleapis/release-please/issues/2892), open as of
+  September 2026).
+- **It also re-activates `.github/release.yml`** (section 6): with GitHub generating the notes,
+  your label categories apply again. Exclude release-please's own PR or the notes list
+  themselves — `autorelease: pending` and `autorelease: tagged` alongside `skip-changelog`.
+  Because the categories are label-driven, pair this with a small workflow that labels each PR
+  from its conventional-commit title, or CLI-opened PRs arrive unlabelled and land in "Other".
+- **`skip-changelog: true`** keeps no `CHANGELOG.md` at all — the Releases page is the
+  changelog. Worth it beyond taste: the generated file trips Prettier, and CI does not run on
+  the release PR, so nothing surfaces the failure.
+
+#### Gate the run, or every docs merge proposes a release
+
+release-please has a "no user-facing commits" skip, but **it never fires under
+`changelog-type: github`**: GitHub's generated notes are never empty — they always end in a
+*Full Changelog* line — so a lone `docs:` or `ci:` merge still opens a release PR.
+
+Put a `gate` job in front that reads the push payload and only lets release-please run when the
+push carries something users get — `feat`/`fix`/`perf`/`revert`, any `type!:`, a
+`BREAKING CHANGE:` footer, `build(deps):` (a *runtime* bump; Dependabot scopes dev ones
+`deps-dev`), or the release PR's own merge:
+
+```yaml
+gate:
+  runs-on: ubuntu-24.04
+  outputs:
+    releasable: ${{ steps.check.outputs.releasable }}
+  steps:
+    - id: check
+      env:
+        MESSAGES: ${{ toJSON(github.event.commits.*.message) }}
+        RELEASABLE: '^((feat|fix|perf|revert)(\([^)]*\))?!?: |[a-z]+(\([^)]*\))?!: |build\(deps\): |Revert |chore(\([^)]*\))?: release v?[0-9])'
+      run: |
+        if jq -e --arg re "$RELEASABLE" '(length == 0) or (length >= 2048) or ([.[] | (split("\n")[0] | test($re)) or test("\nBREAKING[- ]CHANGE: ") or test("\nRelease-As: "; "i")] | any)' <<< "$MESSAGES" > /dev/null; then
+          echo "releasable=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "releasable=false" >> "$GITHUB_OUTPUT"
+        fi
+```
+
+The job only computes the answer — the half that makes it a gate is on release-please itself:
+
+```yaml
+release-please:
+  needs: gate
+  if: ${{ needs.gate.outputs.releasable == 'true' }}
+```
+
+This reads the **subject line** of each pushed commit, which assumes the repo **squash-merges**
+pull requests so the PR title becomes the subject. On a repo that uses true merge commits the
+subject is `Merge pull request #N from …` and the conventional-commit title sits on a later
+line, so every push — the release PR's own merge included — judges non-releasable and no
+release ever happens. Either require squash merges (Settings → General → Pull Requests), or
+test the whole message instead of `split("\n")[0]`.
+
+**The footer tests are not decoration.** A `BREAKING CHANGE:` or `Release-As:` footer is
+usually written on a commit whose *subject* is not releasable — the off-policy bump below is
+steered with an empty commit, and a breaking change is often a `refactor!`/`chore!`. Without
+them the gate skips exactly the commits those footers exist to act on, and the escape hatch
+this skill recommends silently does nothing. `Release-As` is matched case-insensitively
+because release-please's own parser is: a gate stricter than the thing it gates rejects a
+footer release-please would have honoured.
+
+Match the last alternative to your `pull-request-title-pattern` so the release PR's own merge
+is always releasable — that merge is what creates the tag. **Fail open** at both ends: on a full
+payload (`length >= 2048`) a push that large may hide a releasable commit, and on an empty
+one (`length == 0`) there is nothing to judge — `[...] | any` is `false` for an empty array,
+so without that clause a payload carrying no `commits` (a branch creation, a tag push, or a
+`schedule`/`workflow_dispatch` trigger if the workflow ever grows one) would silently skip.
+Let both through rather than miss a release.
 
 ## 6. Release notes are generated, never hand-written
 
@@ -175,6 +340,20 @@ The notes are built from **PR titles** — which is the operational reason PR ti
 describe the change ("if someone only read the title, would they understand what this
 does?"). No hand-maintained CHANGELOG file; it drifts and duplicates the Releases page.
 
+This file stays in play under release-please when you set `changelog-type: github` — same
+categories, plus the `autorelease:*` excludes — so keep PRs labelled.
+
+**Create the labels before anything applies them.** `skip-changelog` is not a default GitHub
+label, and `gh pr edit --add-label` fails the step outright on a label the repo does not
+define — `'skip-changelog' not found`, exit 1 — so a workflow that labels from the PR title
+goes red on the first `ci:` or `chore:` pull request, which is usually the one adopting this.
+Naming a missing label in `release.yml` is harmless by contrast: an exclude that matches
+nothing simply excludes nothing.
+
+```bash
+gh label create skip-changelog --color ededed --description "Left out of the release notes"
+```
+
 ---
 
 *All shapes lifted from live, maintained repos (verified 2026-08-04): the `.gitattributes`
@@ -185,4 +364,10 @@ The `@AGENTS.md` import-vs-link behavior observed live in two repos side by side
 release-please flow verified end-to-end on a production container repo (2026-08-06): Release
 PR → human merge → tag + Release → dispatched publish at the tag ref → multi-arch registry
 manifest with `:VERSION` + `:latest`; all four adoption gotchas above were hit and resolved
-in that run, not copied from documentation.*
+in that run, not copied from documentation. The `changelog-type: github` contributor lines,
+`skip-changelog`, and the releasable-commit gate verified on two npm plugin repos
+(2026-09-21); the gate's judgement observed correctly skipping a `ci:` merge in production.
+`include-commit-authors` re-confirmed a no-op against release-please#2892, still open. The
+`Release-As` gate gap, the `skip-changelog` label prerequisite and the `split()` expression
+error all surfaced adopting this on a sixth repo (2026-09-23); `split()` confirmed undefined by
+actionlint 1.7.12, which is where the function list above comes from.*
