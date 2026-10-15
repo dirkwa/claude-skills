@@ -232,6 +232,24 @@
         "lint",
         "trivy"
       ]
+    },
+    {
+      "name": "signalk-wasm",
+      "source": "./signalk-wasm",
+      "description": "WebAssembly in SignalK \u2014 two co-installed skills: signalk-wasm-plugin writes sandboxed WASM plugins (Rust wasm32-wasip1 / AssemblyScript buffer ABI, which capabilities are enforced, admin-only endpoints and the 64 KB Rust response cap, serving a UI via signalk-webapp, providers, sockets, and verified runtime bugs) with a live-tested Rust starter; signalk-wasm-library ships a wasm-pack module inside a normal Node plugin (the pkg/.gitignore tarball trap, wasm-opt feature flags, external glue, dual ESM/CJS).",
+      "author": {
+        "name": "Dirk Wahrheit"
+      },
+      "repository": "https://github.com/sailingnaturali/claude-skills",
+      "license": "MIT",
+      "keywords": [
+        "signalk",
+        "marine",
+        "wasm",
+        "webassembly",
+        "rust",
+        "plugin"
+      ]
     }
   ]
 }
