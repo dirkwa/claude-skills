@@ -139,8 +139,10 @@ The repo scaffolding that has **already paid for itself** across maintained repo
 conventions in `AGENTS.md` imported by `CLAUDE.md` via the **`@`-syntax** (a plain "See
 AGENTS.md" link does *not* load — observed live), `.gitattributes` `* text=auto eol=lf`
 (kills the Windows-CI ``Delete `␍` `` wall), a `format`/`ci-lint` script pair with the
-**read-only check in CI**, a weekly **Trivy** scan for container repos tuned to actionable
-findings (`ignore-unfixed`, HIGH/CRITICAL, SARIF → Security tab), **tag-triggered
+**read-only check in CI**, a weekly **Trivy** scan for container repos that scans the
+**published image**, not a fresh build (`ignore-unfixed`, SARIF → Security tab, and no
+severity filter, which the action ignores for SARIF anyway), with an `apt-get upgrade` at
+build kept out of the layer cache so a release fixes what the scan finds, **tag-triggered
 publishing** (npm via OIDC trusted publishing; GHCR with a narrowed tag glob treated as a
 coarse filter plus the mandatory in-job semver check it cannot replace, prerelease-safe
 `:latest`, and a `needs:`-gated Release), the **verified release-please adoption path** (the

@@ -1,6 +1,6 @@
 ---
 name: repo-scaffold
-description: Use when creating a repository or upgrading its scaffolding — agent context files, line-ending normalization, format/lint CI, container CVE scanning, tag-triggered publishing, release automation, and generated release notes. Encodes the working set from maintained repos, CLAUDE.md importing AGENTS.md via the @-syntax (a plain link does not load), .gitattributes eol=lf (the Windows-CI "Delete ␍" fix), prettier+eslint as a read-only CI gate, a weekly Trivy scan tuned to actionable findings, tag globs as a coarse filter backed by a mandatory in-job semver check, prerelease-safe latest, the verified release-please adoption path (token-cascade dispatch, the Actions-may-create-PRs setting, concurrency, issues-write), and label-categorized release notes.
+description: Use when creating a repository or upgrading its scaffolding — agent context files, line-ending normalization, format/lint CI, container CVE scanning, tag-triggered publishing, release automation, and generated release notes. Encodes the working set from maintained repos, CLAUDE.md importing AGENTS.md via the @-syntax (a plain link does not load), .gitattributes eol=lf (the Windows-CI "Delete ␍" fix), prettier+eslint as a read-only CI gate, a weekly Trivy scan of the published image (no severity filter: the action ignores it for SARIF) with an apt-get upgrade at build so a release fixes what it finds, tag globs as a coarse filter backed by a mandatory in-job semver check, prerelease-safe latest, the verified release-please adoption path (token-cascade dispatch, the Actions-may-create-PRs setting, concurrency, issues-write), and label-categorized release notes.
 ---
 
 # Repo scaffolding that pays rent
@@ -48,18 +48,70 @@ docs/shell — retrofitting it later means a noisy reformat commit. After bumpin
 eslint / typescript versions, run `npm install` before `format`: formatter output diverges
 between versions and CI will reject stale-toolchain output.
 
-## 4. Container repos: a weekly Trivy scan, tuned to be actionable
+## 4. Container repos: scan what you shipped, and make a rebuild fix it
 
-For any repo that publishes a container image, add a scheduled CVE scan (shape from a live
-workflow):
+For any repo that publishes a container image, add a scheduled CVE scan — and make sure the
+release it points you at actually fixes what it found.
 
 - **Weekly cron + `workflow_dispatch`, not per-PR** — freshly disclosed CVEs surface without
-  any code change, and per-PR would add an image build (often QEMU) to every PR.
-- Build the amd64 image with `push: false, load: true`, scan with the Trivy action, output
-  SARIF, upload to the repo's Security → Code scanning tab.
-- **Tune for signal**: `ignore-unfixed: true` (CVEs with no fixed version are noise you
-  cannot act on) and `severity: HIGH,CRITICAL`. Informational — it gates nothing; a finding
-  in a hand-pinned binary is the cue to bump that version ARG.
+  any code change.
+- **Scan the published image, not a fresh build.** Point the Trivy action at the release —
+  `image-ref: 'ghcr.io/${{ github.repository }}:latest'` — with no build step at all. A fresh
+  build answers "what would the next release ship", so its alerts open and close with the base
+  image, regardless of what installs run: a `liblzma5` advisory (DSA-6549-1) from a fresh build
+  stayed open while the release built four days later already shipped the fixed package, and
+  the reverse — a vulnerable release going unflagged once the base is fixed — is the same
+  mismatch. Scanning the release makes an open alert mean "the published image is affected",
+  and it closes when a release ships the fix.
+- **Scan every published architecture.** Upstream base images are built per architecture, so
+  their packages can differ even under one tag. Run a matrix with one SARIF category per
+  architecture — keep the category you already upload for the first, so its existing alerts
+  update in place. The action has no platform input, but Trivy reads every flag from a
+  `TRIVY_*` variable (`envName := "trivy_" + flag name` in Trivy's `pkg/flag/options.go`), so
+  set it on the step:
+  ```yaml
+  - uses: aquasecurity/trivy-action@v0.36.0
+    env:
+      TRIVY_PLATFORM: linux/${{ matrix.arch }}
+  ```
+- **`ignore-unfixed: true`, and no severity filter.** `ignore-unfixed` drops CVEs with no fixed
+  version — noise you cannot act on. A `severity: HIGH,CRITICAL` line, by contrast, does
+  nothing: for SARIF output the action runs `unset TRIVY_SEVERITY` unless
+  `limit-severities-for-sarif: true` is also set (read in the action's `entrypoint.sh`, verified
+  against `aquasecurity/trivy-action` v0.36.0, October 2026). Don't reach for that flag:
+  Debian security advisories (`DSA-*`, `TEMP-*`) usually carry no severity, so Trivy reports
+  them as UNKNOWN and a HIGH/CRITICAL filter hides exactly the base-image fixes. Every
+  fixable finding is actionable, but what fixes one depends on where it sits: a Debian package
+  ships with the next release once the image upgrades its OS packages at build (below); an npm
+  package with the next release only when the fix is inside the declared range and the build
+  resolves fresh (no lockfile copied in), otherwise it needs a dependency bump; the language
+  runtime from the base image with a release after that base is rebuilt upstream; a
+  hand-pinned binary with a bump of its version ARG.
+- **Nothing reacts to the alert.** Dependabot acts only on its own alerts — the dependency
+  manifests and the `FROM` lines it can version — so a Trivy finding in Code scanning opens no
+  Dependabot PR, and GitHub Actions has no trigger for a new code-scanning alert. For an
+  OS-package finding the remedy is a release; make sure one delivers the fix:
+  - **Upgrade the base's packages in the final stage.** The base (`node:24-trixie-slim`, say)
+    is rebuilt upstream on its own schedule, and Debian publishes security fixes before that
+    rebuild comes:
+    ```dockerfile
+    RUN apt-get update \
+     && DEBIAN_FRONTEND=noninteractive apt-get upgrade --with-new-pkgs -y \
+     && apt-get install -y --no-install-recommends <your packages> \
+     && rm -rf /var/lib/apt/lists/*
+    ```
+    `--with-new-pkgs` matters: a plain `upgrade` holds back any update that needs a new
+    dependency, so a security fix that adds a library would silently not ship.
+  - **Keep the layer cache off that stage.** With `cache-from: type=gha` and `mode=max`, the
+    upgrade layer is keyed on the base image and the command text, so it replays the package
+    set of the first build until the base moves. `docker/build-push-action`'s
+    `no-cache-filters: <stage>` rebuilds just that stage; the build and dependency stages keep
+    their cache.
+  - **Floating base or pinned digest is a choice, not a fix.** A floating
+    `FROM node:24-trixie-slim` takes upstream rebuilds at the next release. Pinning
+    `@sha256:<digest>` and adding the `docker` ecosystem to Dependabot gets a PR for every
+    upstream rebuild instead — Dependabot can only bump what is pinned — at the cost of a
+    release each time the base moves.
 - Hygiene: guard the job with `if: github.repository == '<owner>/<repo>'` so forks don't
   burn their minutes, and `persist-credentials: false` on checkout when no later step needs
   the token.
@@ -97,6 +149,10 @@ workflow):
 
     Note the `(0|[1-9][0-9]*)` components: they reject leading zeros (`v01.2.3`) as semver
     requires, which a naive `[0-9]+` would let through.
+    `${GITHUB_REF_NAME#v}` strips a `v` but does not require one, and a `workflow_dispatch` can
+    select any ref, a tag the push trigger's glob never matches included. Guard the publish job
+    with `if: startsWith(github.ref, 'refs/tags/v')` rather than `github.ref_type == 'tag'`, or a
+    manual run on a `1.2.3-beta.1` tag publishes it.
   - **Prereleases never move `:latest`**: any version with a prerelease suffix (`-beta.1`,
     `-rc.2`, `-alpha.1`, …) publishes `:VERSION` only — key the check on "has a prerelease
     part", not on an enumerated list, or the next suffix style slips through.
@@ -182,6 +238,12 @@ in the config file instead, which is where the rest of the settings already are.
   can be — `gh workflow run` needs the workflow to declare `workflow_dispatch` and to exist on
   the default branch. One that is tag-triggered but has neither gets no recovery from this
   approach; give it a `workflow_dispatch` trigger (the cheap fix) or drive it another way.
+- **A hand-pushed pre-release tag needs its version from the tag.** release-please bumps
+  `package.json` only in its own PR, so `main` holds the *last release's* version, and a
+  `v1.3.0-beta.1` tagged there would `npm publish` that version again — or a stale one. In the
+  publish job, accept a tag that equals `package.json`'s version (release-please's own), set a
+  pre-release one with `npm version "$TAGGED" --no-git-tag-version` for that publish only, and
+  fail anything else. Caught in review on adoption (2026-10-18), not yet through a beta.
 - **The repo setting "Allow GitHub Actions to create and approve pull requests" is off by
   default** — the first run does all its branch work and then fails with exactly that
   message. Flip it under Settings → Actions → General (or
@@ -252,6 +314,8 @@ holds, and say so in the repo.
   themselves — `autorelease: pending` and `autorelease: tagged` alongside `skip-changelog`.
   Because the categories are label-driven, pair this with a small workflow that labels each PR
   from its conventional-commit title, or CLI-opened PRs arrive unlabelled and land in "Other".
+  Map a `!` title away from `skip-changelog`: by type alone a breaking `refactor!:` or `chore!:`
+  lands in `skip-changelog` and the one change a consumer must read vanishes from the notes.
 - **`skip-changelog: true`** keeps no `CHANGELOG.md` at all — the Releases page is the
   changelog. Worth it beyond taste: the generated file trips Prettier, and CI does not run on
   the release PR, so nothing surfaces the failure.
@@ -291,6 +355,21 @@ The job only computes the answer — the half that makes it a gate is on release
 release-please:
   needs: gate
   if: ${{ needs.gate.outputs.releasable == 'true' }}
+```
+
+**Dependabot writes `build(deps):` only when told to.** Left alone it copies the repo's commit
+style, which in a conventional-commit repo comes out as `chore(deps):` and `chore(deps-dev):`
+(observed: `chore(deps-dev): bump vitest from 4.1.12 to 5.0.4`), so a runtime bump never passes
+the gate and never ships. Set the prefix per ecosystem:
+
+```yaml
+# .github/dependabot.yml — directory, schedule and groups as usual
+- package-ecosystem: npm
+  commit-message: { prefix: build, include: scope }   # build(deps) / build(deps-dev)
+- package-ecosystem: docker                           # only with a digest-pinned FROM (section 4)
+  commit-message: { prefix: build, include: scope }   # build(deps): a base-image fix ships
+- package-ecosystem: github-actions
+  commit-message: { prefix: ci, include: scope }      # ci(deps): an action bump ships nothing
 ```
 
 This reads the **subject line** of each pushed commit, which assumes the repo **squash-merges**
@@ -358,7 +437,7 @@ gh label create skip-changelog --color ededed --description "Left out of the rel
 
 *All shapes lifted from live, maintained repos (verified 2026-08-04): the `.gitattributes`
 line and its Windows-CI rationale, the format/ci-lint script pair, the weekly Trivy workflow
-(cron, SARIF, ignore-unfixed, HIGH/CRITICAL), the dotted tag glob + semver validation +
+(cron, SARIF, ignore-unfixed), the dotted tag glob + semver validation +
 prerelease-safe `:latest` + `needs:`-gated Release, and the label-categorized `release.yml`.
 The `@AGENTS.md` import-vs-link behavior observed live in two repos side by side. The
 release-please flow verified end-to-end on a production container repo (2026-08-06): Release
@@ -370,4 +449,12 @@ in that run, not copied from documentation. The `changelog-type: github` contrib
 `include-commit-authors` re-confirmed a no-op against release-please#2892, still open. The
 `Release-As` gate gap, the `skip-changelog` label prerequisite and the `split()` expression
 error all surfaced adopting this on a sixth repo (2026-09-23); `split()` confirmed undefined by
-actionlint 1.7.12, which is where the function list above comes from.*
+actionlint 1.7.12, which is where the function list above comes from. Scanning the release
+rather than a fresh build, the ignored SARIF severity filter and the Dependabot prefix were all
+observed on 2026-10-18: a fresh-build `liblzma5` alert open against a release that already had
+the fix, `trivy-action` v0.36.0's `entrypoint.sh` read, and a Dependabot PR titled
+`chore(deps-dev)`. The two-architecture matrix ran green on a branch the same day; that
+`TRIVY_PLATFORM` selects the architecture comes from Trivy's flag binding in source, since the
+scan log does not name it. The `apt-get upgrade --with-new-pkgs` plus `no-cache-filters` shape
+shipped in a release of two container repos the same day: the publish log shows the upgrade
+step run on both architectures rather than `CACHED`.*
