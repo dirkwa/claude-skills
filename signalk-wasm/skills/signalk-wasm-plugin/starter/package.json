@@ -1,0 +1,16 @@
+{
+  "name": "my-wasm-plugin",
+  "version": "0.1.0",
+  "description": "Signal K WASM plugin starter",
+  "keywords": ["signalk-wasm-plugin"],
+  "wasmManifest": "plugin.wasm",
+  "wasmCapabilities": {
+    "dataRead": true,
+    "dataWrite": true
+  },
+  "files": ["plugin.wasm", "public/"],
+  "scripts": {
+    "build": "cargo build --release --target wasm32-wasip1 && cp target/wasm32-wasip1/release/my_wasm_plugin.wasm plugin.wasm"
+  },
+  "license": "MIT"
+}

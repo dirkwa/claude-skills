@@ -1,0 +1,8 @@
+{
+  "name": "signalk-wasm",
+  "description": "WebAssembly in SignalK: sandboxed WASM plugins (Rust/AssemblyScript ABI, capabilities, endpoints, providers, verified runtime bugs) and wasm-pack libraries inside Node plugins.",
+  "version": "0.1.0",
+  "author": { "name": "Dirk Wahrheit" },
+  "license": "MIT",
+  "keywords": ["signalk", "marine", "wasm", "webassembly", "rust", "plugin"]
+}

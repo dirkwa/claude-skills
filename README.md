@@ -8,7 +8,7 @@ marine-AI stack.
 
 ```
 /plugin marketplace add sailingnaturali/claude-skills
-/plugin install signalk-plugin@sailingnaturali     # or signalk-apis@…, signalk-container-helper@…, signalk-e2e@…, git-worktrees@…, clipboard-fallback@…, repo-scaffold@…, coderabbit-cli@…, signalk-registry@…, npm-oidc-publish@…, oss-branch-protection@…, debug-mcp-agent@…, record-web-gif@…
+/plugin install signalk-plugin@sailingnaturali     # or signalk-apis@…, signalk-container-helper@…, signalk-e2e@…, git-worktrees@…, clipboard-fallback@…, repo-scaffold@…, coderabbit-cli@…, signalk-registry@…, npm-oidc-publish@…, oss-branch-protection@…, debug-mcp-agent@…, record-web-gif@…, signalk-wasm@…
 ```
 
 ## Plugins
@@ -152,6 +152,26 @@ for `by @author` contributor credit** (and why `include-commit-authors` is a no-
 `CHANGELOG.md` with `skip-changelog`, the **releasable-commit gate** that stops a docs or ci
 merge proposing a release, and **generated release notes** categorized by PR label — no
 hand-written changelog.
+
+### `signalk-wasm`
+WebAssembly in [SignalK](https://signalk.org) — two co-installed skills, starting from the
+decision the docs don't spell out: a **sandboxed WASM plugin** and a **WASM library inside a
+Node plugin** are different tools.
+- **`signalk-wasm-plugin`** — writing a `wasmManifest` plugin in Rust (`wasm32-wasip1`) or
+  AssemblyScript: the buffer ABI and required exports (`allocate`/`deallocate`, 8 KB metadata
+  buffers), config save = stop+start on the same instance, which `wasmCapabilities` are
+  actually enforced (missing ones fail silently with 0/-1), deltas, providers, UDP/TCP
+  sockets, and the "can it serve a web app?" answer: endpoints are **admin-only** under
+  security, capped at **64 KB** for Rust and synchronous, so a display UI ships as a `signalk-webapp`
+  static mount at `/<packageName>/` instead. Carries the bugs reproduced on a live server —
+  scoped package names lose status and config, WASI file writes fail for plugins enabled at
+  boot, `sk_get_self_path` always empty — plus a live-tested Rust starter and the full
+  host-import reference.
+- **`signalk-wasm-library`** — shipping a `wasm-pack` module inside an ordinary TypeScript
+  plugin (the `@canboat/wasm` pattern): prebuilt in the tarball, so it survives
+  `--ignore-scripts` where native addons don't. The traps: wasm-pack's `pkg/.gitignore`
+  silently drops the `.wasm` from `npm pack`, newer rustc output that wasm-pack's `wasm-opt`
+  rejects, bundling the glue, and freeing wasm-bindgen objects.
 
 ## Skill format policy
 
