@@ -330,6 +330,25 @@ Four distinct places, and picking the wrong one is a delayed-loss bug:
   `<configdir>/plugin-config-data/<pluginid>/`. It survives plugin updates and travels with
   the server's config dir (and its backups). This is where caches, downloaded files, and
   databases belong — the bundled resources-provider keeps its waypoints/routes there.
+- **Caches → their own subdirectory of the data dir, tagged with a `CACHEDIR.TAG`.** Backups
+  copy `getDataDirPath()` along with everything else. A cache the plugin rewrites every few hours
+  adds a new copy to every scheduled snapshot. On one boat, a weather router's 4.8 GB forecast
+  cache, almost all rewritten daily, grew the backup to 43 GB in days and filled the cloud
+  quota. Put regenerable data (downloads, decoded runs, tiles) in its own subdirectory, and write
+  a [cache directory tag](https://bford.info/cachedir/) into it: a file named `CACHEDIR.TAG`
+  whose content starts with exactly `Signature: 8a477f597d28d172789f06886806bc55`. Kopia
+  (which signalk-backup uses) skips a tagged directory's contents by default. restic, Borg and
+  GNU tar skip them with `--exclude-caches`. Getting it right:
+  - Write the tag in `start()`, before the first download, so a backup taken meanwhile is
+    already clean.
+  - Check the file starts with the signature, not just that it exists: tools ignore a tag
+    without it.
+  - Make your pruners delete only entries named like your own runs, never everything in the
+    directory, or the tag goes too.
+  - Leave settings, user data and anything that can't be downloaded again offshore (a
+    coastline, downloaded charts) untagged, so a restore brings them back.
+
+  *Verified against kopia 0.23.1, October 2026: a tagged directory is stored empty.*
 - **Webapp and per-user settings → the applicationData REST API**:
   `/signalk/v1/applicationData/{user|global}/<appid>/<version>`, persisted by the server under
   `<configdir>/applicationData/{users/<name>|global}/<appid>/<version>.json`. `user` scope is
