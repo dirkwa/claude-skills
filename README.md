@@ -30,8 +30,8 @@ this way), the **app icon that
 dependency scripts, and a plugin can't whitelist itself — containerize heavy parts via the
 signalk-container manager instead), **where to store what** (server-owned config vs
 `getDataDirPath()` vs the applicationData API — and never inside `node_modules`, where
-updates erase it — plus a `CACHEDIR.TAG` on cache directories so backups skip them), npm **OIDC trusted publishing** (including the new-package first-publish
-chicken-and-egg), and the Docker `node_modules` / `EBUSY` install gotcha.
+updates erase it — plus a `CACHEDIR.TAG` on cache directories so backups skip them), npm
+**OIDC trusted publishing** (including the new-package first-publish chicken-and-egg), and the Docker `node_modules` / `EBUSY` install gotcha.
 
 ### `signalk-container-helper`
 Building a SignalK plugin that reaches a service in a Docker/Podman container through the

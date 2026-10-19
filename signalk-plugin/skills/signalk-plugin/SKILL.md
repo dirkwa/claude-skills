@@ -332,8 +332,8 @@ Four distinct places, and picking the wrong one is a delayed-loss bug:
   databases belong — the bundled resources-provider keeps its waypoints/routes there.
 - **Caches → their own subdirectory of the data dir, tagged with a `CACHEDIR.TAG`.** Backups
   copy `getDataDirPath()` along with everything else. A cache the plugin rewrites every few hours
-  adds a new copy to every scheduled snapshot. On one boat, a weather router's 4.8 GB forecast
-  cache, almost all rewritten daily, grew the backup to 43 GB in days and filled the cloud
+  adds a new copy to every scheduled snapshot. On one boat, a weather router's 4.8 GB of
+  caches, almost all rewritten daily, grew the backup repository to 43 GB and filled the cloud
   quota. Put regenerable data (downloads, decoded runs, tiles) in its own subdirectory, and write
   a [cache directory tag](https://bford.info/cachedir/) into it: a file named `CACHEDIR.TAG`
   whose content starts with exactly `Signature: 8a477f597d28d172789f06886806bc55`. Kopia
