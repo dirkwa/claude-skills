@@ -1,6 +1,6 @@
 ---
 name: signalk-plugin
-description: Use when authoring and publishing a SignalK server plugin to npm — the @signalk/server-api patterns that actually work (resource provider vs router, deltas, vessel position), the ESM package scaffold, TypeBox config schemas (which package, and why), webapp state that survives navigation, typechecking a Vite build (Vite only transpiles, so type errors accumulate invisibly), the app icon that 404s because a Vite root disables the default publicDir, the no-install-scripts rule (app-store installs pass --ignore-scripts and npm 12 gates dependency scripts — containerize heavy parts instead), and npm OIDC trusted publishing (including the new-package first-publish chicken-and-egg).
+description: Use when authoring and publishing a SignalK server plugin to npm — the @signalk/server-api patterns that actually work (resource provider vs router, deltas, vessel position), the ESM package scaffold, TypeBox config schemas (which package, and why), webapp state that survives navigation, typechecking a Vite build (Vite only transpiles, so type errors accumulate invisibly), the app icon that 404s because a Vite root disables the default publicDir, the no-install-scripts rule (app-store installs pass --ignore-scripts and npm 12 gates dependency scripts — containerize heavy parts instead), plugin-to-plugin coordination through PropertyValues, and npm OIDC trusted publishing (including the new-package first-publish chicken-and-egg).
 ---
 
 # Author & publish a SignalK plugin
@@ -357,6 +357,69 @@ Four distinct places, and picking the wrong one is a delayed-loss bug:
   enabled"** — a webapp using it must handle that response on open-security servers.
 - **Boat data isn't a file at all** — publish it into the data model (`handleMessage`) or
   behind a provider registration, so every consumer sees it through the normal APIs.
+
+## 11. Plugins that coordinate: PropertyValues
+
+When one plugin has to tell another something — "I evaluate collision alarms for radar
+targets, stand your own down", or "here is a parser for my custom sentence" — use the
+server's **PropertyValues**: `app.emitPropertyValue(name, value)` and
+`app.onPropertyValues(name, cb)`. They are on every plugin's `app`, typed in
+`@signalk/server-api`.
+
+- **Not a property on `app`.** Each plugin gets its own shallow copy of `app`, so a field one
+  plugin sets there is invisible to every other. A `globalThis` field is visible but gives the
+  other side nothing to react to, and the server can't see it.
+- **Not for data.** Measurements and state that change belong in deltas (`handleMessage`).
+  PropertyValues are for configuration-type announcements.
+- **The whole history is kept, and the cap is server-wide.** Every emit is appended and never
+  trimmed. The server allows 1000 values across *all* names together (each name's initial
+  `undefined` counts), and then `emitPropertyValue` throws. So emit on changes only — never on
+  a timer, per delta, or per request — or one chatty plugin breaks every other plugin's emits.
+- **The callback gets the history, not a value.** `onPropertyValues` calls back at once with
+  the full array, which always starts with `undefined` (so the first call may be just
+  `[undefined]`), and again on every later emit. Use the last element. There is no plugin start
+  order, so the value may already be there or arrive later — react on every call, don't read
+  once in `start()`.
+- **Nothing is withdrawn on stop.** A plugin that announces something in `start()` emits the
+  opposite in `stop()`. The listener calls the returned unsubscribe in its `stop()`.
+- **Any plugin can emit under any name.** Pick a name that names your plugin or feature, and
+  check the shape of what you receive instead of casting. (`value` may also be a function — that
+  is how `nmea0183sentenceParser` lets a plugin add parsers for custom sentences.)
+
+```ts
+// announcing plugin
+const PROPERTY = 'collisionAlerts'
+let announced = false
+function announce(running: boolean): void {
+  if (running === announced) return // history is never trimmed: emit changes only
+  try {
+    app.emitPropertyValue(PROPERTY, { evaluatesTargets: running })
+    announced = running
+  } catch (error) {
+    // the server-wide cap is reached; a throw must not break start() or stop()
+    app.error(`Could not announce ${PROPERTY}: ${String(error)}`)
+  }
+}
+// start: announce(true)   stop: announce(false)
+
+// listening plugin
+let unsubscribe: (() => void) | undefined
+let collisionAlertsRunning = false
+// in start():
+unsubscribe = app.onPropertyValues(PROPERTY, (history) => {
+  const v = history[history.length - 1]?.value
+  collisionAlertsRunning =
+    typeof v === 'object' && v !== null &&
+    (v as { evaluatesTargets?: unknown }).evaluatesTargets === true
+})
+// in stop():
+unsubscribe?.()
+unsubscribe = undefined
+```
+
+*History, the `[undefined]` first call, unsubscribe and the server-wide 1000-value cap
+verified against `@signalk/server-api` 2.35.0, October 2026; the per-plugin `app` copy against
+signalk-server 2.35.1 `src/interfaces/plugins.ts`.*
 
 ## Testing
 
