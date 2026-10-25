@@ -373,7 +373,8 @@ server's **PropertyValues**: `app.emitPropertyValue(name, value)` and
   PropertyValues are for configuration-type announcements.
 - **The whole history is kept, and the cap is server-wide.** Every emit is appended and never
   trimmed. The server allows 1000 values across *all* names together (each name's initial
-  `undefined` counts), and then `emitPropertyValue` throws. So emit on changes only — never on
+  `undefined` counts; the check runs before the emit, so a first emit under a new name at 999
+  still lands, at 1001), and then `emitPropertyValue` throws. So emit on changes only — never on
   a timer, per delta, or per request — or one chatty plugin breaks every other plugin's emits.
 - **The callback gets the history, not a value.** `onPropertyValues` calls back at once with
   the full array, which always starts with `undefined` (so the first call may be just
@@ -382,8 +383,12 @@ server's **PropertyValues**: `app.emitPropertyValue(name, value)` and
   to, like `nmea0183sentenceParser`, every element counts: walk the whole history, skipping
   the `undefined`. There is no plugin start order, so a value may already be there or arrive
   later — react on every call, don't read once in `start()`.
-- **Nothing is withdrawn on stop.** A plugin that announces something in `start()` emits the
-  opposite in `stop()`. The listener calls the returned unsubscribe in its `stop()`.
+- **Nothing is withdrawn on stop.** A plugin that announces a state it alone owns in `start()`
+  emits the opposite in `stop()`, and the listener calls the returned unsubscribe in its
+  `stop()`. That withdrawal is best effort: at the cap the emit throws and listeners keep the
+  old state, so they must cope with a stale announcement. A contribution to a name several
+  plugins share — a parser under `nmea0183sentenceParser` — can't be taken back by a later
+  value at all; it stays until the server restarts, unless the name defines its own retraction.
 - **Any plugin can emit under any name.** Pick a name that names your plugin or feature, and
   check the shape of what you receive instead of casting. (`value` may also be a function — that
   is how `nmea0183sentenceParser` lets a plugin add parsers for custom sentences.)
