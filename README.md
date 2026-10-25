@@ -155,18 +155,23 @@ hand-written changelog.
 
 ### `signalk-wasm`
 WebAssembly in [SignalK](https://signalk.org) — two co-installed skills, starting from the
-decision the docs don't spell out: a **sandboxed WASM plugin** and a **WASM library inside a
-Node plugin** are different tools.
+decision the docs don't spell out: a **WASM plugin**, a **WASM library inside a Node plugin**
+and a **native process** are different tools (async Rust — tokio, bluer over D-Bus — can't run
+inside a WASM plugin; BLE belongs on the server's `app.bleApi` from a Node plugin).
 - **`signalk-wasm-plugin`** — writing a `wasmManifest` plugin in Rust (`wasm32-wasip1`) or
-  AssemblyScript: the buffer ABI and required exports (`allocate`/`deallocate`, 8 KB metadata
-  buffers), config save = stop+start on the same instance, which `wasmCapabilities` are
-  actually enforced (missing ones fail silently with 0/-1), deltas, providers, UDP/TCP
-  sockets, and the "can it serve a web app?" answer: endpoints are **admin-only** under
-  security, capped at **64 KB** for Rust and synchronous, so a display UI ships as a `signalk-webapp`
-  static mount at `/<packageName>/` instead. Carries the bugs reproduced on a live server —
-  scoped package names lose status and config, WASI file writes fail for plugins enabled at
-  boot, `sk_get_self_path` always empty — plus a live-tested Rust starter and the full
-  host-import reference.
+  AssemblyScript. It runs in Node's WASI with only the `sk_*` host imports: **isolated, not a
+  security boundary**. The buffer ABI and required exports (`allocate`/`deallocate`, 8 KB
+  metadata buffers), config save = stop+start on the same instance, which `wasmCapabilities`
+  are actually enforced (missing ones fail silently with 0/-1), deltas, providers, PUT
+  handlers, UDP/TCP sockets, and the "can it serve a web app?" answer: endpoints are
+  **admin-only** under security, capped at **64 KB** for Rust and synchronous, so a display UI
+  ships as a `signalk-webapp` static mount at `/<packageName>/` — plus a Datastar/htmx recipe
+  for admin-side hypermedia UIs. Rust traps on `wasm32-wasip1`, measured: a panic inside a
+  `RefCell` borrow poisons the plugin until restart, `lto`+`strip` halve the binary, and
+  `reqwest`/`ureq` compile but fail at runtime. A **version matrix** marks each runtime limit
+  as fixed (scoped package names in 2.34.0, PUT replies in 2.35.0), unreleased (reload on
+  enable) or open with its proposed server PR. Ships live-tested Rust and AssemblyScript
+  starters and the full host-import reference.
 - **`signalk-wasm-library`** — shipping a `wasm-pack` module inside an ordinary TypeScript
   plugin (the `@canboat/wasm` pattern): prebuilt in the tarball, so it survives
   `--ignore-scripts` where native addons don't. The traps: wasm-pack's `pkg/.gitignore`

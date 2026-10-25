@@ -1,0 +1,14 @@
+{
+  "targets": {
+    "release": {
+      "outFile": "plugin.wasm",
+      "optimize": true,
+      "shrinkLevel": 2,
+      "noAssert": true
+    }
+  },
+  "options": {
+    "runtime": "incremental",
+    "exportRuntime": true
+  }
+}

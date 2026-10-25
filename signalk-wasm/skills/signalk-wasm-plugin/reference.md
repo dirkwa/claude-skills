@@ -1,7 +1,7 @@
 # SignalK WASM host imports (`env` module)
 
 Signatures as the host defines them in `src/wasm/bindings/env-imports.ts` (signalk-server
-2.33.0). `ptr/len` pairs are UTF-8 in your linear memory. "Gate" is the `wasmCapabilities`
+2.35.1). `ptr/len` pairs are UTF-8 in your linear memory. "Gate" is the `wasmCapabilities`
 flag the host checks; a failed gate returns `0`/`-1` and only logs a debug line.
 
 Rust declaration form:
@@ -18,11 +18,11 @@ extern "C" {
 | Import | Signature | Gate | Returns / behaviour |
 |---|---|---|---|
 | `sk_debug` | `(ptr, len)` | — | Logged as `signalk:wasm:bindings [<package>] …` |
-| `sk_set_status` | `(ptr, len)` | — | Admin UI status (lost for scoped package names) |
+| `sk_set_status` | `(ptr, len)` | — | Admin UI status (lost for scoped package names before 2.34.0) |
 | `sk_set_error` | `(ptr, len)` | — | Admin UI error |
 | `sk_handle_message` | `(ptr, len, version)` | (`dataWrite`, not enforced) | `version` 1 = v1 data model, 2 = v2 event only |
 | `sk_publish_notification` | `(path_ptr, path_len, value_ptr, value_len) -> i32` | — | 0 / -1; value needs `state` ∈ normal, alert, warn, alarm, emergency |
-| `sk_get_self_path` | `(path_ptr, path_len, buf_ptr, buf_max) -> i32` | (`dataRead`, not enforced) | **Always 0 in 2.33.0** (server issue #3080) |
+| `sk_get_self_path` | `(path_ptr, path_len, buf_ptr, buf_max) -> i32` | (`dataRead`, not enforced) | **Always 0** through 2.35.1 (server issue #3080) |
 | `sk_read_config` | `(buf_ptr, buf_max) -> i32` | — | Bytes written of the saved `configuration`; 0 if missing *or* buffer too small |
 | `sk_save_config` | `(ptr, len) -> i32` | — | 0 / -1; atomic write, keeps `enabled` |
 | `sk_has_capability` | `(ptr, len) -> i32` | — | 1/0, but only knows `network` and `rawSockets` |
@@ -31,7 +31,7 @@ extern "C" {
 
 | Import | Signature | Gate | Exports you must provide |
 |---|---|---|---|
-| `sk_register_put_handler` | `(ctx_ptr, ctx_len, path_ptr, path_len) -> i32` | `putHandlers` | `handle_put_<ctx>_<path>` (dots → `_`): Rust `(val_ptr, val_len, resp_ptr, resp_max=8192) -> written`, returns `{"state","statusCode","message"}` |
+| `sk_register_put_handler` | `(ctx_ptr, ctx_len, path_ptr, path_len) -> i32` | `putHandlers` | 1 registered, 0 without the capability. `handle_put_<ctx>_<path>` (dots → `_`): Rust `(val_ptr, val_len, resp_ptr, resp_max=8192) -> written`, AssemblyScript `(value: string): string`; the value is the PUT's `value` as JSON, the reply `{"state","statusCode","message"}`. Answers HTTP 500 before 2.35.0 |
 | `sk_register_resource_provider` | `(type_ptr, type_len) -> i32` | `resourceProvider` | `resources_list_resources`, `resources_get_resource`, `resources_set_resource`, `resources_delete_resource`: Rust `(req_ptr, req_len, resp_ptr, resp_max=65536) -> written` |
 | `sk_register_weather_provider` | `(name_ptr, name_len) -> i32` | `weatherProvider` | `weather_get_observations`, `weather_get_forecasts`, `weather_get_warnings` |
 | `sk_register_radar_provider` | `(name_ptr, name_len) -> i32` | `radarProvider` | `radar_get_radars`, `radar_get_radar_info`, `radar_get_state`, `radar_get_capabilities`, `radar_set_*`, … |
@@ -50,7 +50,7 @@ All non-blocking; poll them from your `poll` export.
 | `sk_udp_set_multicast_ttl` | `(id, ttl) -> i32` | |
 | `sk_udp_set_multicast_loopback` / `sk_udp_set_broadcast` | `(id, enabled) -> i32` | |
 | `sk_udp_send` | `(id, addr_ptr, addr_len, port, data_ptr, data_len) -> i32` | Returns `data_len` before the send completes |
-| `sk_udp_recv` | `(id, buf_ptr, buf_max, addr_out_ptr, port_out_ptr) -> i32` | Bytes, 0 if empty; source address written NUL-terminated, port as u16 LE; the rest of an oversized datagram is dropped |
+| `sk_udp_recv` | `(id, buf_ptr, buf_max, addr_out_ptr, port_out_ptr) -> i32` | Bytes, 0 if nothing is queued *or* the datagram is empty (loop on `sk_udp_pending`), -1 on error; source address written NUL-terminated, port as u16 LE; the rest of an oversized datagram is dropped |
 | `sk_udp_pending` | `(id) -> i32` | Queued datagrams (max 1000, oldest dropped) |
 | `sk_udp_close` | `(id)` | UDP sockets are also closed on `plugin_stop` |
 | `sk_tcp_create` | `() -> id` | |
@@ -87,4 +87,8 @@ AssemblyScript exports return managed strings (`plugin_name(): string`,
 `resources_get_resource(json: string): string`, …) that the host reads with `__getString`,
 so `exportRuntime: true` is mandatory. HTTP handlers receive `(ptr, len)` where `ptr` is a
 **managed UTF-16 string** created with `__newString` and `len` is its length in UTF-16 code
-units — decode it as such, not as UTF-8 bytes as some docs show.
+units — declare it as `(request: string, len: i32)`, not as UTF-8 bytes as the server's
+example does (verified on 2.35.1 with non-ASCII input). `delta_handler(json: string)` and
+PUT handlers likewise get managed strings; only `plugin_start(ptr, len)` gets raw UTF-8
+bytes. The SDK declares no `sk_register_put_handler`; declare it yourself with
+`@external('env', 'sk_register_put_handler')`.

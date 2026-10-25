@@ -236,7 +236,7 @@
     {
       "name": "signalk-wasm",
       "source": "./signalk-wasm",
-      "description": "WebAssembly in SignalK \u2014 two co-installed skills: signalk-wasm-plugin writes sandboxed WASM plugins (Rust wasm32-wasip1 / AssemblyScript buffer ABI, which capabilities are enforced, admin-only endpoints and the 64 KB Rust response cap, serving a UI via signalk-webapp, providers, sockets, and verified runtime bugs) with a live-tested Rust starter; signalk-wasm-library ships a wasm-pack module inside a normal Node plugin (the pkg/.gitignore tarball trap, wasm-opt feature flags, external glue, dual ESM/CJS).",
+      "description": "WebAssembly in SignalK \u2014 two co-installed skills: signalk-wasm-plugin writes WASM plugins that run in Node WASI with only the sk_* host imports (isolated, not a security boundary): when to pick one over a Node plugin or native process, the Rust wasm32-wasip1 / AssemblyScript ABI, enforced capabilities, admin-only endpoints and the 64 KB Rust cap, a Datastar UI recipe, Rust traps with measured sizes and crate results, a version matrix of runtime limits, and live-tested Rust and AssemblyScript starters; signalk-wasm-library ships a wasm-pack module inside a normal Node plugin (the pkg/.gitignore tarball trap, wasm-opt feature flags, external glue, dual ESM/CJS).",
       "author": {
         "name": "Dirk Wahrheit"
       },
@@ -248,6 +248,7 @@
         "wasm",
         "webassembly",
         "rust",
+        "assemblyscript",
         "plugin"
       ]
     }

@@ -10,7 +10,7 @@ The other way to use WebAssembly in SignalK: keep a normal Node plugin (full
 or reused code as a **wasm-bindgen module loaded in-process**. The reference implementation is
 [`@canboat/wasm`](https://github.com/canboat/canboat-wasm) — canboat's Rust NMEA 2000
 decoder/encoder compiled for `wasm32-unknown-unknown` and published as an npm package; read it
-as the worked example. (For a fully sandboxed plugin written in Rust, see the sibling skill
+as the worked example. (For a plugin that is itself a WASI binary written in Rust, see the sibling skill
 **`signalk-wasm-plugin`**.)
 
 ## 1. Why this pattern exists

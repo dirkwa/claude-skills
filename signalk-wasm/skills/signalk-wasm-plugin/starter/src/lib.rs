@@ -4,27 +4,50 @@
 use serde::Deserialize;
 use std::cell::RefCell;
 
-#[link(wasm_import_module = "env")]
-extern "C" {
-    fn sk_debug(ptr: *const u8, len: usize);
-    fn sk_set_status(ptr: *const u8, len: usize);
-    fn sk_set_error(ptr: *const u8, len: usize);
-    // version: 1 = v1 data model, 2 = v2 event only
-    fn sk_handle_message(ptr: *const u8, len: usize, version: i32);
+// The sk_* imports exist only inside the server. On the host target they are
+// replaced by a fake that records emitted deltas, so `cargo test` links.
+#[cfg(target_arch = "wasm32")]
+mod host {
+    #[link(wasm_import_module = "env")]
+    extern "C" {
+        fn sk_debug(ptr: *const u8, len: usize);
+        fn sk_set_status(ptr: *const u8, len: usize);
+        fn sk_set_error(ptr: *const u8, len: usize);
+        // version: 1 = v1 data model, 2 = v2 event only
+        fn sk_handle_message(ptr: *const u8, len: usize, version: i32);
+    }
+
+    pub fn debug(s: &str) {
+        unsafe { sk_debug(s.as_ptr(), s.len()) }
+    }
+    pub fn set_status(s: &str) {
+        unsafe { sk_set_status(s.as_ptr(), s.len()) }
+    }
+    pub fn set_error(s: &str) {
+        unsafe { sk_set_error(s.as_ptr(), s.len()) }
+    }
+    pub fn emit_v1(delta: &str) {
+        unsafe { sk_handle_message(delta.as_ptr(), delta.len(), 1) }
+    }
 }
 
-fn debug(s: &str) {
-    unsafe { sk_debug(s.as_ptr(), s.len()) }
+#[cfg(not(target_arch = "wasm32"))]
+mod host {
+    use std::cell::RefCell;
+
+    thread_local! {
+        pub static EMITTED: RefCell<Vec<String>> = RefCell::new(Vec::new());
+    }
+
+    pub fn debug(_: &str) {}
+    pub fn set_status(_: &str) {}
+    pub fn set_error(_: &str) {}
+    pub fn emit_v1(delta: &str) {
+        EMITTED.with(|e| e.borrow_mut().push(delta.to_owned()))
+    }
 }
-fn set_status(s: &str) {
-    unsafe { sk_set_status(s.as_ptr(), s.len()) }
-}
-fn set_error(s: &str) {
-    unsafe { sk_set_error(s.as_ptr(), s.len()) }
-}
-fn emit_v1(delta: &str) {
-    unsafe { sk_handle_message(delta.as_ptr(), delta.len(), 1) }
-}
+
+use host::{debug, emit_v1, set_error, set_status};
 
 // The host allocates request/response buffers inside the module through
 // these two exports, so they must exist and must agree with each other.
@@ -52,10 +75,20 @@ fn read_in(ptr: *const u8, len: usize) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
-#[derive(Deserialize, Default)]
+const DEFAULT_GREETING: &str = "Hello";
+
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 struct Config {
     greeting: String,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            greeting: DEFAULT_GREETING.to_owned(),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -81,11 +114,10 @@ pub extern "C" fn plugin_name(out: *mut u8, max: usize) -> i32 {
 
 #[no_mangle]
 pub extern "C" fn plugin_schema(out: *mut u8, max: usize) -> i32 {
-    write_out(
-        r#"{"type":"object","properties":{"greeting":{"type":"string","title":"Greeting","default":"Hello"}}}"#,
-        out,
-        max,
-    )
+    let schema = format!(
+        r#"{{"type":"object","properties":{{"greeting":{{"type":"string","title":"Greeting","default":"{DEFAULT_GREETING}"}}}}}}"#
+    );
+    write_out(&schema, out, max)
 }
 
 // Called again on every config save, on the same instance: reset state here.
@@ -147,7 +179,10 @@ pub extern "C" fn handle_hello(
         let s = s.borrow();
         (s.config.greeting.clone(), s.ticks)
     });
-    let html = format!("<!doctype html><h1>{greeting}</h1><p>ticks: {ticks}</p>");
+    let html = format!(
+        "<!doctype html><h1>{}</h1><p>ticks: {ticks}</p>",
+        escape_html(&greeting)
+    );
     let envelope = serde_json::json!({
         "statusCode": 200,
         "headers": { "Content-Type": "text/html; charset=utf-8" },
@@ -160,5 +195,45 @@ pub extern "C" fn handle_hello(
     write_out(&out, resp_ptr, resp_max)
 }
 
+fn escape_html(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 const RESPONSE_TOO_LARGE: &str =
     r#"{"statusCode":500,"headers":{"Content-Type":"text/plain"},"body":"response exceeds the 64 KB buffer"}"#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_greeting_uses_default() {
+        let cfg = b"{}";
+        assert_eq!(plugin_start(cfg.as_ptr(), cfg.len()), 0);
+        STATE.with(|s| assert_eq!(s.borrow().config.greeting, DEFAULT_GREETING));
+    }
+
+    #[test]
+    fn poll_emits_ticks() {
+        let cfg = br#"{"greeting":"Hi"}"#;
+        assert_eq!(plugin_start(cfg.as_ptr(), cfg.len()), 0);
+        poll();
+        host::EMITTED.with(|e| assert!(e.borrow()[0].contains(r#""value":1"#)));
+    }
+
+    #[test]
+    fn greeting_is_html_escaped() {
+        assert_eq!(escape_html("<b>&</b>"), "&lt;b&gt;&amp;&lt;/b&gt;");
+    }
+}

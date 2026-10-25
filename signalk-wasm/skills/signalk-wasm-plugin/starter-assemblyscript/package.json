@@ -1,0 +1,20 @@
+{
+  "name": "my-as-wasm-plugin",
+  "version": "0.1.0",
+  "description": "Signal K WASM plugin starter (AssemblyScript)",
+  "keywords": ["signalk-wasm-plugin"],
+  "wasmManifest": "plugin.wasm",
+  "wasmCapabilities": {
+    "dataRead": true,
+    "dataWrite": true
+  },
+  "files": ["plugin.wasm", "public/"],
+  "scripts": {
+    "build": "asc assembly/index.ts --target release"
+  },
+  "devDependencies": {
+    "@signalk/assemblyscript-plugin-sdk": "^0.3.0",
+    "assemblyscript": "^0.28.20"
+  },
+  "license": "MIT"
+}

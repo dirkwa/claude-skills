@@ -1,8 +1,8 @@
 {
   "name": "signalk-wasm",
-  "description": "WebAssembly in SignalK: sandboxed WASM plugins (Rust/AssemblyScript ABI, capabilities, endpoints, providers, verified runtime bugs) and wasm-pack libraries inside Node plugins.",
-  "version": "0.1.0",
+  "description": "WebAssembly in SignalK: WASM plugins run in Node WASI with only the sk_* host imports (isolated, not a security boundary) — when to use one vs a Node plugin or native process, the Rust/AssemblyScript ABI, capabilities, endpoints and a Datastar UI recipe, Rust traps on wasm32-wasip1, Rust and AssemblyScript starters, a version matrix of runtime limits — and wasm-pack libraries inside Node plugins.",
+  "version": "0.2.0",
   "author": { "name": "Dirk Wahrheit" },
   "license": "MIT",
-  "keywords": ["signalk", "marine", "wasm", "webassembly", "rust", "plugin"]
+  "keywords": ["signalk", "marine", "wasm", "webassembly", "rust", "assemblyscript", "plugin"]
 }
