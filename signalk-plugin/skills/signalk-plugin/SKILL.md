@@ -373,7 +373,8 @@ server's **PropertyValues**: `app.emitPropertyValue(name, value)` and
   PropertyValues are for configuration-type announcements.
 - **The whole history is kept, and the cap is server-wide.** Every emit is appended and never
   trimmed. The server allows 1000 values across *all* names together (each name's initial
-  `undefined` counts; the check runs before the emit, so a first emit under a new name at 999
+  `undefined` counts, added on the first emit *or subscribe* to that name, so subscribing uses
+  the budget too; the check runs before the emit, so a first emit under a new name at 999
   still lands, at 1001), and then `emitPropertyValue` throws. So emit on changes only — never on
   a timer, per delta, or per request — or one chatty plugin breaks every other plugin's emits.
 - **The callback gets the history, not a value.** `onPropertyValues` calls back at once with
