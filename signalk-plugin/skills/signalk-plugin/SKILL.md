@@ -377,9 +377,11 @@ server's **PropertyValues**: `app.emitPropertyValue(name, value)` and
   a timer, per delta, or per request — or one chatty plugin breaks every other plugin's emits.
 - **The callback gets the history, not a value.** `onPropertyValues` calls back at once with
   the full array, which always starts with `undefined` (so the first call may be just
-  `[undefined]`), and again on every later emit. Use the last element. There is no plugin start
-  order, so the value may already be there or arrive later — react on every call, don't read
-  once in `start()`.
+  `[undefined]`), and again on every later emit. For a state one plugin owns (like the
+  example below) the last element is the current value. For a name several plugins contribute
+  to, like `nmea0183sentenceParser`, every element counts: walk the whole history, skipping
+  the `undefined`. There is no plugin start order, so a value may already be there or arrive
+  later — react on every call, don't read once in `start()`.
 - **Nothing is withdrawn on stop.** A plugin that announces something in `start()` emits the
   opposite in `stop()`. The listener calls the returned unsubscribe in its `stop()`.
 - **Any plugin can emit under any name.** Pick a name that names your plugin or feature, and
