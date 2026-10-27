@@ -216,9 +216,8 @@ back to `<pkg>` when it does not. So the moment a plugin ships a webapp, `appIco
 "./icon.svg"` means `public/icon.svg` — the same place the webapp's own
 `<link rel="icon">` fetches from. One file, one location, two consumers.
 
-Keeping the authored icon at the package root is still convenient (it is what a reader of the
-repo expects), but it is **not** what the server reads once `public/` exists, and it is not
-what the webapp asks for. Something has to put it in the build output.
+An icon at the package root is **not** what the server reads once `public/` exists, and it is
+not what the webapp asks for. Something has to put it in the build output.
 
 The trap is that **a Vite `root` kills the default `publicDir`**. Vite resolves `publicDir`
 relative to `root`, so the moment the config says `root: 'web'` the default becomes
@@ -227,16 +226,15 @@ from nowhere, and `<link rel="icon" href="/<plugin-id>/icon.svg">` **404s on eve
 in a real server. Everything functional still works, which is why this survives: the app's JS
 and CSS serve 200 and only the icon is missing.
 
-Point `publicDir` at a directory that holds the icon, and keep **one** file:
+Point `publicDir` at a directory that holds the icon, and keep **one** file there:
 
 ```ts
 // vite.config.ts
 export default defineConfig({
   root: 'web',
   base: '/<plugin-id>/',
-  // The authored icon lives at the package root; both the server's appIcon
-  // lookup and the webapp's <link rel="icon"> read it from the build output.
-  // Copy it at build time rather than keeping a second copy in step by hand.
+  // Copies the icon next to index.html, where both the server's appIcon
+  // lookup and the webapp's <link rel="icon"> read it.
   publicDir: '../static',
   build: { outDir: '../public', emptyOutDir: false }
 })
@@ -248,26 +246,20 @@ mounts — is never written. `emptyOutDir: false` is what lets `public/` also ho
 build does not generate; the cost is that a renamed or deleted asset lingers there until you
 remove it, so set it to `true` if the directory is purely build output.
 
-Create `static/icon.svg` as a symlink to the root `icon.svg`, so there is one real file. A
-second *copy* works too and is what several plugins do, but then the two drift the first time
-the icon is redrawn.
+**Make `static/icon.svg` the real file, not a symlink to a root `icon.svg`.** A symlink
+looks like the tidy way to keep one copy, and it builds fine on Linux and macOS, but git on
+Windows (where `core.symlinks` is false by default) checks a symlink out as a plain text file
+holding its target. Vite then copies that 11-byte file into `public/`, and a release packed from
+that checkout ships an "icon" whose content is `../icon.svg`: the App Store card and the
+favicon both come up empty, with every other asset serving 200. That is exactly how
+signalk-universal-installer-rpi-mgmt 0.1.0 shipped, from a manual first publish on a Windows
+machine. With the only copy in `static/`, there is nothing a checkout can turn into a link,
+and `files` needs no root `icon.svg` because `public/icon.svg` is the one the server and the
+browser read. A unit test that `lstat`s `static/icon.svg` as a regular file starting with
+`<svg` keeps it that way.
 
-**Ship the build output, not the symlink directory.** `files` lists the icon and the build
-output (`["dist", "public", "icon.svg", …]`) — `static/` stays out of the package, because
-`vite build` has already copied the real bytes into `public/`. Shipping the root copy too is
-harmless and keeps the repo layout honest; `public/icon.svg` is the one the server and the
-browser actually read. That distinction is what makes
-the symlink safe: npm 12 silently drops a symlinked file from a packed directory, so a
-package that shipped `static/` itself would publish without it and 404 exactly as before.
-
-This was checked on Vite 8.3, where `vite build` follows a file symlink in `publicDir` and
-copies the real bytes. The dev server has had its own history with symlinked static files, so
-if `npm run dev` serves the icon differently from the build, keep a real copy rather than
-debugging it. Verified on npm 12 against a
-plugin built this way: `vite build` writes the real 1052 bytes to
-`public/icon.svg` (not a link), and `npm pack` produces `package/icon.svg` and
-`package/public/icon.svg` as regular files. Check yours with `tar -tvf <tgz> | grep icon` —
-a link shows as `l`, a real file as `-`.
+Check what you ship with `tar -tvzf <tgz> | grep icon`: `public/icon.svg` must be a regular
+file (`-`) with the SVG's real size, not a few bytes.
 
 Then install the tarball into a running server and fetch the icon path itself. A plugin that
 has never been installed from its tarball has never had this path exercised: everything
