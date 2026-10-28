@@ -254,9 +254,7 @@ that checkout ships an "icon" whose content is `../icon.svg`: the App Store card
 favicon both come up empty, with every other asset serving 200. That is exactly how
 signalk-universal-installer-rpi-mgmt 0.1.0 shipped, from a manual first publish on a Windows
 machine. With the only copy in `static/`, there is nothing a checkout can turn into a link,
-and `files` needs no root `icon.svg` because `public/icon.svg` is the one the server and the
-browser read. A unit test that `lstat`s `static/icon.svg` as a regular file starting with
-`<svg` keeps it that way.
+and `files` needs no root `icon.svg`, but it must list `public` (for example `["dist", "public", …]`), because `public/icon.svg` is the one the server and the browser read. A unit test that `lstat`s `static/icon.svg`, asserts it is a regular file, and checks that its content contains `<svg` (an XML declaration may come first) keeps it that way.
 
 Check what you ship with `tar -tvzf <tgz> | grep icon`: `public/icon.svg` must be a regular
 file (`-`) with the SVG's real size, not a few bytes.
