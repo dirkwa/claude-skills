@@ -50,7 +50,7 @@ makes relative imports require explicit `.js` extensions (`./helpers.js`, even i
 ## 3. The @signalk/server-api patterns that actually work
 
 - **Serve plugin data via `app.registerResourceProvider({ type, methods: { listResources, getResource, setResource, deleteResource } })`** — it's served at `/signalk/v2/api/resources/<type>` and is **anonymously readable** under the server's `allow_readonly`. **Do NOT serve data with `registerWithRouter`** — `/plugins/<id>/*` routes are **admin-gated**, so every consumer would need an admin token. This is the single biggest gotcha.
-- Publish a value: `app.handleMessage(plugin.id, { updates: [{ values: [{ path: '<path>' as Path, value }] }] })` For a path outside the spec, also set its metadata (section 12).
+- Publish a value: `app.handleMessage(plugin.id, { updates: [{ values: [{ path: '<path>' as Path, value }] }] })`. For a path outside the spec, also set its metadata (section 12).
 - Read the vessel position: `app.getSelfPath('navigation.position.value') as Position | undefined` (note the `.value` suffix).
 - Do periodic work in `setInterval`, and wrap each cycle — and each independent step inside it — in `try/catch` → `app.error(...)`, so one failing fetch can't blank everything else or kill the loop.
 - **Avoid an `express` runtime dependency**: register routes on the `IRouter` the server hands you via `registerWithRouter`, or use the resource API; keep `@types/express` dev-only via `import type` (erased at build).
@@ -440,7 +440,8 @@ metadata with `app.setDefaultMetadata(path, meta)` in `start()`:
   - otherwise the path is `periodic`, and you choose its **`timeout`** in seconds: a few
     times your publish interval, `'auto'` to let the server learn the rate, or `0` to exempt
     it. Without one the server's default applies, 60 s out of the box — a value published
-    every 60 s then times out just before every update.
+    every 60 s then
+    can time out just before each update.
 
 ```ts
 import type { MetaValue } from '@signalk/server-api'
