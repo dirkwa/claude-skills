@@ -437,11 +437,18 @@ metadata with `app.setDefaultMetadata(path, meta)` in `start()`:
   boolean values are never timed out:
   - `updateContract: 'event'` for a value you send only when it changes (a state, a
     setting, a computed result that stays put). Silence then means "unchanged", never stale.
-  - otherwise the path is `periodic`, and you choose its **`timeout`** in seconds: a few
-    times your publish interval, `'auto'` to let the server learn the rate, or `0` to exempt
-    it. Without one the server's default applies, 60 s out of the box — a value published
-    every 60 s then
-    can time out just before each update.
+  - `updateContract: 'periodic'` for a value you send on a schedule. That is the default, so
+    you can usually leave it out — but the server treats some prefixes as event data
+    (`navigation.anchor`, `navigation.course`, `navigation.home`, `design`,
+    `communication`, …): a periodic value there is never timed out, even with a
+    `timeout`, unless you say so.
+  - a periodic path's **`timeout`**, in seconds: a few times your publish interval, or `0`
+    to exempt it. Without one the spec's timeout applies, else the server's default, 60 s
+    out of the box — a value published every 60 s then can time out just before each
+    update.
+  - `timeout: 'auto'` lets the server learn the rate, but during its warm-up (up to 30 s,
+    and at least two updates) it uses the server's default, and it never learns more than 300 s.
+    For a value sent less often than once a minute, give a number instead.
 
 ```ts
 import type { MetaValue } from '@signalk/server-api'
