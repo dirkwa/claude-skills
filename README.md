@@ -34,7 +34,9 @@ updates erase it — plus a `CACHEDIR.TAG` on cache directories so backups skip 
 **plugin-to-plugin coordination** through the server's PropertyValues (emit on changes only:
 the history is never trimmed and the cap is server-wide), **metadata for the paths a plugin
 publishes** (units, display category, and whether silence means lost or unchanged, set with
-`setDefaultMetadata` so data-timeout enforcement doesn't blank them), npm
+`setDefaultMetadata` so data-timeout enforcement doesn't blank them), **plugins that work on
+install** (enabled-by-default, schema defaults merged in `start()`) with **touch-first** webapps
+and config forms, npm
 **OIDC trusted publishing** (including the new-package first-publish chicken-and-egg), and the Docker `node_modules` / `EBUSY` install gotcha.
 
 ### `signalk-container-helper`
